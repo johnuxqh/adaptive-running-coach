@@ -7,6 +7,7 @@ import { WeekCloseoutPage } from '../pages/WeekCloseoutPage';
 import { WeekPlannerPage } from '../pages/WeekPlannerPage';
 import { WorkoutDetailPage } from '../pages/WorkoutDetailPage';
 import { SettingsExportPage } from '../pages/SettingsExportPage';
+import { DesignSystemPage } from '../pages/DesignSystemPage';
 import { hasAthleteProfile } from '../utils/storage';
 
 function DefaultRoute() {
@@ -25,6 +26,7 @@ export function AppRoutes() {
         <Route path="workout/:id" element={<WorkoutDetailPage />} />
         <Route path="closeout" element={<WeekCloseoutPage />} />
         <Route path="settings" element={<SettingsExportPage />} />
+        <Route path="design-system" element={<DesignSystemPage />} />
         <Route path="*" element={<DefaultRoute />} />
       </Route>
     </Routes>
