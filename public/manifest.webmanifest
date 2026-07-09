@@ -1,0 +1,10 @@
+{
+  "name": "Life-Fit Running Coach",
+  "short_name": "Life-Fit",
+  "description": "A mobile-first running coach for flexible weekly training.",
+  "start_url": "/today",
+  "display": "standalone",
+  "background_color": "#f7efe4",
+  "theme_color": "#f7efe4",
+  "icons": []
+}
