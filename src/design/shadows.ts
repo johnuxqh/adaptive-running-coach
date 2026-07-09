@@ -1,0 +1,1 @@
+export const shadows = { none: 'none', card: '0 10px 30px rgba(47, 42, 36, 0.06)', raised: '0 16px 50px rgba(47, 42, 36, 0.10)', nav: '0 -10px 30px rgba(47, 42, 36, 0.08)', shell: '0 24px 80px rgba(47, 42, 36, 0.12)' } as const;
