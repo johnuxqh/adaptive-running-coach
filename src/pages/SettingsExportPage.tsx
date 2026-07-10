@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CardStack, HeroTitle, PageStack, PrimaryButton, SectionCard, SecondaryButton, StatCard, TextInput } from '../components/ui';
+import { CardStack, HeroTitle, PageStack, PrimaryButton, SectionCard, SecondaryButton, SlidePanel, StatCard, TextInput } from '../components/ui';
 import { colors, spacing, typography } from '../design';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek } from '../engine/planTypes';
 import type { AthleteProfile, WorkoutLog } from '../engine/types';
@@ -20,6 +20,11 @@ export function SettingsExportPage() {
   const [coachReportLink, setCoachReportLink] = useState(savedSettings.googleSheetsWebhookUrl ?? '');
   const [coachSyncMessage, setCoachSyncMessage] = useState('');
   const [pendingReports, setPendingReports] = useState(getPendingSyncCount());
+  const [panel, setPanel] = useState<string | null>(null);
+  const [name, setName] = useState(athleteName);
+  const [raceDate, setRaceDate] = useState(plan?.summary.raceDate ?? '');
+  const [raceGoal, setRaceGoal] = useState(profile?.raceGoal?.goalDescription ?? '');
+  const [runsPerWeek, setRunsPerWeek] = useState('');
 
 
   function saveCoachSync() {
@@ -58,6 +63,9 @@ export function SettingsExportPage() {
     setPendingReports(0);
     setCoachSyncMessage('Pending coach reports cleared.');
   }
+
+  function saveProfileName() { if (profile) writeStorageValue(storageKeys.profile, { ...profile, name, updatedAt: new Date().toISOString() }); setPanel(null); }
+  function savePlanEdit() { if (profile) writeStorageValue(storageKeys.profile, { ...profile, raceGoal: { ...profile.raceGoal, raceDate, goalDescription: raceGoal }, updatedAt: new Date().toISOString() }); setPanel(null); }
 
   function resetApp() {
     if (!window.confirm('Reset Life-Fit Running Coach? This removes your profile, plan, current week, workout logs, week summaries, and settings.')) return;
@@ -103,21 +111,25 @@ export function SettingsExportPage() {
 
   return <PageStack>
     <HeroTitle eyebrow="Settings" title="Simple and calm">Manage your local app data.</HeroTitle>
-    <CardStack>
-      <SettingsCard title="Profile">{athleteName}</SettingsCard>
-      <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Coach Sync</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>This lets your weekly summary be sent to your coach when you close a week.</p><label style={{ ...typography.caption, color: colors.neutral.muted, textTransform: 'uppercase' }}>Coach report link</label><TextInput value={coachReportLink} onChange={(event) => setCoachReportLink(event.currentTarget.value)} placeholder="Paste your coach report link" inputMode="url" /><PrimaryButton onClick={saveCoachSync}>Save</PrimaryButton><SecondaryButton onClick={testCoachSync}>Test Connection</SecondaryButton><SecondaryButton onClick={clearCoachSync}>Clear</SecondaryButton><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Pending coach reports: {pendingReports}</p><SecondaryButton onClick={retryReports} disabled={!pendingReports}>Retry Pending Reports</SecondaryButton><SecondaryButton onClick={clearReports} disabled={!pendingReports}>Clear Pending Reports</SecondaryButton>{coachSyncMessage ? <p style={{ ...typography.small, color: colors.primary.green, margin: 0 }}>{coachSyncMessage}</p> : null}</CardStack></SectionCard>
-      <ActionCard title="Export Full Plan" text="Download every planned workout as a CSV safety net." action="Export Full Plan" onClick={exportPlan} disabled={!plan} />
-      <ActionCard title="Export Coach Report" text="Download planned workouts, logs, and week summaries for your coach." action="Export Coach Report" onClick={exportCoachReport} disabled={!plan} />
-      <ActionCard title="Export Backup" text="Download your profile, plan, logs, summaries, planner state, and settings as JSON." action="Export Backup" onClick={exportBackup} />
-      <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Import Backup</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Restore a Life-Fit backup JSON from this device.</p><input ref={fileRef} type="file" accept="application/json,.json" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) importBackup(file); }} style={{ display: 'none' }} /><SecondaryButton onClick={() => fileRef.current?.click()}>Import Backup</SecondaryButton></CardStack></SectionCard>
-      <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Reset App</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Remove your profile, plan, current week, workout logs, week summaries, and settings from this device.</p><PrimaryButton onClick={resetApp}>Reset App</PrimaryButton></CardStack></SectionCard>
-      <SettingsCard title="About">Life-Fit Running Coach stores your data locally on this device.</SettingsCard>
-    </CardStack>
-    <StatCard label="Version" value="0.8.0" detail="Pass 8 week closeout and export tools" />
-    <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Build target: GitHub Pages</p>
+    <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Profile</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{name} <button style={linkButton} onClick={() => setPanel('profile')}>Edit</button></p><SecondaryButton onClick={() => setPanel('plan')}>Edit Plan</SecondaryButton></CardStack></SectionCard>
+    <CardStack>{['Coach Sync','Export Full Plan','Export Coach Report','Backup','Import Backup','Reset App','About'].map((item) => <button key={item} type="button" onClick={() => setPanel(item)} style={settingsButton}>{item}<span>→</span></button>)}</CardStack>
+    <SlidePanel isOpen={Boolean(panel)} title={panel ?? 'Settings'} onClose={() => setPanel(null)}><CardStack>
+      {panel === 'profile' ? <><TextInput value={name} onChange={(e) => setName(e.currentTarget.value)} /><PrimaryButton onClick={saveProfileName}>Save</PrimaryButton></> : null}
+      {panel === 'plan' ? <><p style={{ ...typography.small, color: colors.accent.amber, margin: 0 }}>This only updates future weeks. Completed history is kept. Future plan regeneration is coming next pass.</p><TextInput type="date" value={raceDate} onChange={(e) => setRaceDate(e.currentTarget.value)} /><TextInput placeholder="Race goal" value={raceGoal} onChange={(e) => setRaceGoal(e.currentTarget.value)} /><TextInput placeholder="Realistic runs per week" inputMode="numeric" value={runsPerWeek} onChange={(e) => setRunsPerWeek(e.currentTarget.value)} /><PrimaryButton onClick={savePlanEdit}>Save</PrimaryButton></> : null}
+      {panel === 'Coach Sync' ? <><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Send weekly summaries to your coach.</p><TextInput value={coachReportLink} onChange={(event) => setCoachReportLink(event.currentTarget.value)} placeholder="Paste your coach report link" inputMode="url" /><PrimaryButton onClick={saveCoachSync}>Save</PrimaryButton><SecondaryButton onClick={testCoachSync}>Test Connection</SecondaryButton><SecondaryButton onClick={clearCoachSync}>Clear</SecondaryButton><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Pending coach reports: {pendingReports}</p><SecondaryButton onClick={retryReports} disabled={!pendingReports}>Retry Pending Reports</SecondaryButton><SecondaryButton onClick={clearReports} disabled={!pendingReports}>Clear Pending Reports</SecondaryButton>{coachSyncMessage ? <p style={{ ...typography.small, color: colors.primary.green, margin: 0 }}>{coachSyncMessage}</p> : null}</> : null}
+      {panel === 'Export Full Plan' ? <ActionCard title="Export Full Plan" text="Download every planned workout as CSV." action="Export Full Plan" onClick={exportPlan} disabled={!plan} /> : null}
+      {panel === 'Export Coach Report' ? <ActionCard title="Export Coach Report" text="Download logs and summaries." action="Export Coach Report" onClick={exportCoachReport} disabled={!plan} /> : null}
+      {panel === 'Backup' ? <ActionCard title="Backup" text="Download a JSON backup." action="Export Backup" onClick={exportBackup} /> : null}
+      {panel === 'Import Backup' ? <><input ref={fileRef} type="file" accept="application/json,.json" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) importBackup(file); }} style={{ display: 'none' }} /><SecondaryButton onClick={() => fileRef.current?.click()}>Import Backup</SecondaryButton></> : null}
+      {panel === 'Reset App' ? <><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Remove all local app data from this device.</p><PrimaryButton onClick={resetApp}>Reset App</PrimaryButton></> : null}
+      {panel === 'About' ? <><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Life-Fit Running Coach stores your data locally on this device.</p><StatCard label="Version" value="0.8.0" detail="Mobile UX tightening" /></> : null}
+    </CardStack></SlidePanel>
   </PageStack>;
 }
 function SettingsCard({ title, children }: { title: string; children: React.ReactNode }) { return <SectionCard><h3 style={{ ...typography.h3, margin: 0 }}>{title}</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{children}</p></SectionCard>; }
 function ActionCard({ title, text, action, onClick, disabled }: { title: string; text: string; action: string; onClick: () => void; disabled?: boolean }) { return <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>{title}</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{text}</p><SecondaryButton onClick={onClick} disabled={disabled}>{action}</SecondaryButton></CardStack></SectionCard>; }
 function clearApp() { removeStorageValue(storageKeys.profile); removeStorageValue(storageKeys.plan); removeStorageValue(storageKeys.currentWeek); removeStorageValue(storageKeys.workoutLogs); removeStorageValue(storageKeys.settings); removeStorageValue(storageKeys.weeklyPlanner); removeStorageValue(storageKeys.weekSummaries); removeStorageValue(storageKeys.pendingSync); }
 function parseBackup(raw: string): BackupPayload | null { try { const value = JSON.parse(raw) as Partial<BackupPayload>; if (!('profile' in value) || !('plan' in value) || !Array.isArray(value.workoutLogs) || !value.plannerState || !Array.isArray(value.weekSummaries)) return null; return value as BackupPayload; } catch { return null; } }
+
+const settingsButton = { ...typography.button, display: 'flex', justifyContent: 'space-between', width: '100%', border: `1px solid ${colors.neutral.border}`, borderRadius: 18, padding: spacing.md, background: colors.neutral.surface, color: colors.neutral.text } as const;
+const linkButton = { ...typography.caption, border: 0, background: 'transparent', color: colors.primary.green, textDecoration: 'underline', cursor: 'pointer' } as const;
