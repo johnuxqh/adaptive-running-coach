@@ -1,4 +1,5 @@
-import type { AthleteProfile, TrainingPlan, WorkoutLog, WeekSummary } from '../engine/types';
+import type { GeneratedTrainingPlan, GeneratedTrainingWeek } from '../engine/planTypes';
+import type { AthleteProfile, WorkoutLog } from '../engine/types';
 
 export const storageKeys = {
   profile: 'lfrc_profile',
@@ -17,8 +18,8 @@ export interface LifeFitSettings {
 
 export interface LifeFitStorageShape {
   [storageKeys.profile]: AthleteProfile | null;
-  [storageKeys.plan]: TrainingPlan | null;
-  [storageKeys.currentWeek]: WeekSummary | null;
+  [storageKeys.plan]: GeneratedTrainingPlan | null;
+  [storageKeys.currentWeek]: GeneratedTrainingWeek | null;
   [storageKeys.workoutLogs]: WorkoutLog[];
   [storageKeys.settings]: LifeFitSettings;
 }

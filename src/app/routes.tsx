@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { readStorageValue, storageKeys } from '../utils/storage';
 import { AppShell } from '../components/layout/AppShell';
 import { WelcomePage } from '../pages/WelcomePage';
 import { OnboardingPage } from '../pages/OnboardingPage';
@@ -11,7 +12,9 @@ import { CompleteWorkoutPage } from '../pages/CompleteWorkoutPage';
 import { SettingsExportPage } from '../pages/SettingsExportPage';
 import { DesignSystemPage } from '../pages/DesignSystemPage';
 function DefaultRoute() {
-  return <Navigate to="/welcome" replace />;
+  const hasProfile = readStorageValue(storageKeys.profile, null) !== null;
+  const hasPlan = readStorageValue(storageKeys.plan, null) !== null;
+  return <Navigate to={hasProfile && hasPlan ? '/plan-summary' : '/onboarding'} replace />;
 }
 
 export function AppRoutes() {

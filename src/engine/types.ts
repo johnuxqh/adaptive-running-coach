@@ -1,4 +1,4 @@
-export type RaceDistance = '5k' | '10k' | 'half_marathon' | 'marathon' | 'custom';
+export type RaceDistance = '5k' | '10k' | '15k' | 'half_marathon' | 'marathon' | 'custom';
 
 export type WorkoutType = 'easy' | 'long' | 'tempo' | 'interval' | 'recovery' | 'rest' | 'strength' | 'race';
 
