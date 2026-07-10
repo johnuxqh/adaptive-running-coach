@@ -12,6 +12,7 @@ import { CompleteWorkoutPage } from '../pages/CompleteWorkoutPage';
 import { SettingsExportPage } from '../pages/SettingsExportPage';
 import { DesignSystemPage } from '../pages/DesignSystemPage';
 import { PlanReviewPage } from '../pages/PlanReviewPage';
+import { EngineLabPage } from '../pages/EngineLabPage';
 function DefaultRoute() {
   const hasProfile = readStorageValue(storageKeys.profile, null) !== null;
   const hasPlan = readStorageValue(storageKeys.plan, null) !== null;
@@ -34,6 +35,7 @@ export function AppRoutes() {
         <Route path="closeout" element={<WeekCloseoutPage />} />
         <Route path="settings" element={<SettingsExportPage />} />
         <Route path="design-system" element={<DesignSystemPage />} />
+        <Route path="engine-lab" element={<EngineLabPage />} />
         <Route path="*" element={<DefaultRoute />} />
       </Route>
     </Routes>

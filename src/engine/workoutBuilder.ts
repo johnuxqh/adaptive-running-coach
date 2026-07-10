@@ -72,9 +72,26 @@ function longRun(km: number, input: { phase: TrainingPhase; race: RaceType }): O
 
 function quality(input: { weekNumber: number; phase: TrainingPhase; weeklyKm: number; race: RaceType }): Omit<GeneratedWorkout, 'status' | 'weekNumber' | 'id'> {
   const distance = roundKm(input.weeklyKm * QUALITY_SHARE);
-  const isSpecific = input.phase === 'specific' || input.phase === 'peak';
-  const title = isSpecific ? (input.race === '5k' || input.race === '10k' ? 'Intervals 6 x 2 min' : 'Threshold 4 x 6 min') : 'Threshold 3 x 6 min';
-  return { title, type: 'quality_session', category: 'foundation', plannedDistanceKm: distance, plannedDurationMin: minutes(distance), intensity: isSpecific ? 'Controlled hard' : 'Comfortably hard', purpose: 'Improve sustainable speed while keeping one clear hard session.', warmup: '10–15 minutes easy plus a few relaxed strides.', mainSet: isSpecific ? 'Run the repetitions controlled with easy recoveries.' : 'Run controlled threshold repeats with 2 minutes easy jog recovery.', cooldown: '10 minutes easy.', coachTip: 'Finish with one more rep in reserve.', suggestedDay: 'Wednesday' };
+  let title = 'Strides + light tempo';
+  let intensity = 'Comfortably hard';
+  let mainSet = 'Run 15–20 minutes light tempo plus relaxed strides; stay in control.';
+  if (input.phase === 'build') {
+    title = input.race === '5k' || input.race === '10k' ? 'Hill reps + threshold' : 'Threshold intervals 4 x 6 min';
+    mainSet = 'Build threshold strength with controlled reps or hills; jog easily between efforts.';
+  } else if (input.phase === 'specific') {
+    title = input.race === 'marathon' ? 'Marathon rhythm steady run' : input.race === '5k' || input.race === '10k' ? 'Race-pace intervals' : 'Long threshold blocks';
+    intensity = 'Race specific';
+    mainSet = input.race === 'marathon' ? 'Include controlled marathon-effort segments without forcing pace.' : 'Practise race rhythm in controlled blocks with easy recoveries.';
+  } else if (input.phase === 'peak') {
+    title = input.race === 'marathon' ? 'Marathon-effort sharpening' : 'Race-specific sharpening';
+    intensity = 'Controlled hard';
+    mainSet = 'Keep the work specific and crisp, but reduce the urge to prove fitness.';
+  } else if (input.phase === 'taper') {
+    title = 'Short controlled sharpening';
+    intensity = 'Moderate';
+    mainSet = 'Short controlled pickups only; leave the session fresher than you started.';
+  }
+  return { title, type: 'quality_session', category: 'foundation', plannedDistanceKm: distance, plannedDurationMin: minutes(distance), intensity, purpose: 'Progress the key fitness quality for this phase while keeping one clear hard session.', warmup: '10–15 minutes easy plus a few relaxed strides.', mainSet, cooldown: '10 minutes easy.', coachTip: 'Finish with one more rep in reserve.', suggestedDay: 'Wednesday' };
 }
 
 function milestoneWorkout(input: { weekNumber: number }, race: PlanGeneratorMilestoneRace): Omit<GeneratedWorkout, 'status' | 'weekNumber' | 'id'> {
