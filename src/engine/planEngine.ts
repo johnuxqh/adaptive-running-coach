@@ -7,3 +7,10 @@ export * from './workoutLibrary';
 export * from './trainingRules';
 export * from './progression';
 export * from './longRun';
+
+export * from './dateHelpers';
+export * from './weekBuilder';
+export * from './workoutBuilder';
+export * from './warnings';
+export * from './planSummary';
+export * from './planGenerator';
