@@ -8,6 +8,7 @@ export const storageKeys = {
   workoutLogs: 'lfrc_workout_logs',
   settings: 'lfrc_settings',
   weeklyPlanner: 'lfrc_weekly_planner',
+  weekSummaries: 'lfrc_week_summaries',
 } as const;
 
 export type StorageKey = (typeof storageKeys)[keyof typeof storageKeys];
@@ -24,6 +25,7 @@ export interface LifeFitStorageShape {
   [storageKeys.workoutLogs]: WorkoutLog[];
   [storageKeys.settings]: LifeFitSettings;
   [storageKeys.weeklyPlanner]: unknown;
+  [storageKeys.weekSummaries]: unknown;
 }
 
 export const defaultSettings: LifeFitSettings = {

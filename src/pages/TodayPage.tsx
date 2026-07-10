@@ -35,6 +35,7 @@ export function TodayPage() {
   const daysUntil = Math.max(0, Math.ceil((raceDate.getTime() - new Date().getTime()) / 86400000));
   const foundationDone = currentWeek.foundationWorkouts.filter((workout) => workout.status === 'completed').length;
   const optionalDone = currentWeek.optionalWorkouts.filter((workout) => workout.status === 'completed').length;
+  const hasCompletedThisWeek = workouts.some((workout) => workout.status === 'completed');
 
   function assignToday(workout: GeneratedWorkout) {
     const next = { ...planner, assignments: { ...planner.assignments, [workout.id]: todayIso } };
@@ -54,6 +55,7 @@ export function TodayPage() {
     {todaysWorkout ? <TodayWorkoutCard workout={todaysWorkout} onStart={() => navigate(`/workout/${todaysWorkout.id}`)} onMove={() => navigate('/week')} /> : <SectionCard><CardStack><h3 style={{ ...typography.h2, margin: 0 }}>{workouts.length ? 'Rest Day' : 'Nothing Planned'}</h3><p style={{ ...typography.body, color: colors.neutral.muted, margin: 0 }}>A calmer day still counts. If life has opened a window, you can choose one remaining workout for today.</p><PrimaryButton onClick={() => setChooserOpen(true)}>Choose Today&apos;s Workout</PrimaryButton>{chooserOpen ? (remaining.length ? remaining.map((workout) => <SecondaryButton key={workout.id} onClick={() => assignToday(workout)}>{workout.title}</SecondaryButton>) : <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>No remaining workouts this week.</p>) : null}</CardStack></SectionCard>}
     {nextWorkout ? <SimpleNextCard item={nextWorkout} /> : null}
     <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Weekly Progress</h3><ProgressRow label="Foundation" value={foundationDone} total={currentWeek.foundationWorkouts.length} /><ProgressRow label="Optional" value={optionalDone} total={currentWeek.optionalWorkouts.length} /></CardStack></SectionCard>
+    {hasCompletedThisWeek ? <SectionCard><CardStack><Chip tone="green">Every completed run counts.</Chip><SecondaryButton onClick={() => navigate('/closeout')}>Close This Week</SecondaryButton></CardStack></SectionCard> : null}
     <SectionCard><Chip tone="green">{message}</Chip></SectionCard>
   </PageStack>;
 }
