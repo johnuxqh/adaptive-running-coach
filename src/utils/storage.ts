@@ -9,6 +9,7 @@ export const storageKeys = {
   settings: 'lfrc_settings',
   weeklyPlanner: 'lfrc_weekly_planner',
   weekSummaries: 'lfrc_week_summaries',
+  pendingSync: 'lfrc_pending_sync',
 } as const;
 
 export type StorageKey = (typeof storageKeys)[keyof typeof storageKeys];
@@ -16,6 +17,7 @@ export type StorageKey = (typeof storageKeys)[keyof typeof storageKeys];
 export interface LifeFitSettings {
   distanceUnit: 'km' | 'mi';
   weekStartsOn: 'monday' | 'sunday';
+  googleSheetsWebhookUrl?: string;
 }
 
 export interface LifeFitStorageShape {
@@ -26,6 +28,7 @@ export interface LifeFitStorageShape {
   [storageKeys.settings]: LifeFitSettings;
   [storageKeys.weeklyPlanner]: unknown;
   [storageKeys.weekSummaries]: unknown;
+  [storageKeys.pendingSync]: unknown;
 }
 
 export const defaultSettings: LifeFitSettings = {
