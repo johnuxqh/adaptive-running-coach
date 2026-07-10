@@ -2,6 +2,7 @@ declare function require(name: string): any;
 declare const process: { cwd(): string };
 const { mkdirSync, writeFileSync } = require('node:fs');
 const path = require('node:path');
+import { evaluateEngineHealth } from '../src/engine/engineHealth';
 import { generateTrainingPlan } from '../src/engine/planGenerator';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, PlanGeneratorInput, RaceType } from '../src/engine/planTypes';
 
@@ -23,10 +24,13 @@ function main() {
   writeCsv('plan-test-summary.csv', summaryRows(cases));
   writeCsv('plan-test-weeks.csv', weekRows(cases));
   writeCsv('plan-test-workouts.csv', workoutRows(cases));
+  writeCsv('plan-test-health.csv', healthRows(cases));
 
   const suspicious = cases.flatMap((item) => item.suspicious.map((warning) => `${item.caseId}: ${warning}`));
   console.log(`Generated ${cases.length} deterministic plan cases in ${outputDir}`);
-  console.log(`CSV files: plan-test-summary.csv, plan-test-weeks.csv, plan-test-workouts.csv`);
+  console.log(`CSV files: plan-test-summary.csv, plan-test-weeks.csv, plan-test-workouts.csv, plan-test-health.csv`);
+  const counts = raceDistances.map((race) => `${race}: ${cases.filter((item) => item.input.raceDistance === race).length}`).join(', ');
+  console.log(`Race distance counts: ${counts}`);
   if (suspicious.length) {
     console.warn(`Suspicious patterns found (${suspicious.length}); review CSV outputs:`);
     suspicious.forEach((warning) => console.warn(`- ${warning}`));
@@ -51,7 +55,7 @@ function buildCases(): CaseRecord[] {
     }
   }
 
-  return selected.slice(0, 120).map((input, index) => {
+  return selected.slice(0, 180).map((input, index) => {
     const plan = generateTrainingPlan(input);
     const caseId = `CASE-${String(index + 1).padStart(3, '0')}`;
     return { caseId, input, plan, suspicious: suspiciousPatterns(plan) };
@@ -114,6 +118,15 @@ function weekRows(cases: CaseRecord[]): string[][] {
     const quality = week.foundationWorkouts.find((workout) => workout.type === 'quality_session' || workout.type === 'race');
     return [caseId,input.raceDistance,input.raceGoal,String(week.weekNumber),week.phase,week.weekType,week.startsOn,week.endsOn,String(week.targetDistanceRangeKm.min),String(week.targetDistanceRangeKm.max),String(week.targetDurationRangeMin.min),String(week.targetDurationRangeMin.max),longRun?.title ?? '',String(longRun?.plannedDistanceKm ?? ''),quality?.title ?? '',String(week.foundationWorkouts.length),String(week.optionalWorkouts.length),String(week.warnings.length),week.warnings.join(' | ')];
   }));
+  return [header, ...rows];
+}
+
+function healthRows(cases: CaseRecord[]): string[][] {
+  const header = ['caseId','raceDistance','raceGoal','weeksToRace','currentWeeklyKm','longestRunKm','runsPerWeek','peakLongRunKm','targetPeakLongRunMin','targetPeakLongRunMax','longRunTargetMet','peakWeeklyKm','targetPeakWeeklyKmMin','targetPeakWeeklyKmMax','weeklyVolumeTargetMet','recoveryWeeksPresent','taperPresent','raceWeekPresent','foundationCountValid','suspiciousWarningCount','engineScore','engineGrade','issues'];
+  const rows = cases.map(({ caseId, plan }) => {
+    const h = evaluateEngineHealth(plan, caseId);
+    return [h.caseId,h.raceDistance,h.raceGoal,String(h.weeksToRace),String(h.currentWeeklyKm),String(h.longestRunKm),String(h.runsPerWeek),String(h.peakLongRunKm),String(h.targetPeakLongRunMin),String(h.targetPeakLongRunMax),String(h.longRunTargetMet),String(h.peakWeeklyKm),String(h.targetPeakWeeklyKmMin),String(h.targetPeakWeeklyKmMax),String(h.weeklyVolumeTargetMet),String(h.recoveryWeeksPresent),String(h.taperPresent),String(h.raceWeekPresent),String(h.foundationCountValid),String(h.suspiciousWarningCount),String(h.engineScore),h.engineGrade,h.issues];
+  });
   return [header, ...rows];
 }
 
