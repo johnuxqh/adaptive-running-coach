@@ -1,6 +1,6 @@
 import { daysBetween, getTrainingWeekDates, parseIsoDate, startOfTrainingWeek } from './dateHelpers';
 import { buildPlanSummary } from './planSummary';
-import { goalKey, peakLongRunTargets, peakWeeklyTargets, targetForRunway } from './targets';
+import { goalKey, peakLongRunTargets, peakWeeklyTargets, raceDistanceKm, targetForRunway } from './targets';
 import { planTemplates } from './trainingTemplates';
 import { buildWorkouts } from './workoutBuilder';
 import { getCoachingMessage, getPhaseForWeek, getWeekType } from './weekBuilder';
@@ -38,7 +38,7 @@ export function generateTrainingPlan(input: PlanGeneratorInput): GeneratedTraini
   const longRunRange = peakLongRunTargets[input.raceDistance][key];
   const weeklyRange = peakWeeklyTargets[input.raceDistance][key];
   const progressionRate = weekDates.length < template.preferredWeeks ? SHORT_RUNWAY_INCREASE : MAX_WEEKLY_INCREASE;
-  const peakWeekIndex = Math.max(0, weekDates.length - (input.raceDistance === 'marathon' ? 5 : input.raceDistance === 'half_marathon' ? 3 : 2));
+  const peakWeekIndex = Math.max(0, weekDates.length - (input.raceDistance === 'marathon' ? 4 : input.raceDistance === 'half_marathon' ? 3 : 2));
   const buildWeeks = Math.max(1, peakWeekIndex);
   const strongThreshold = weeklyRange.min * 0.85;
   let targetPeakLongRun = targetForRunway(longRunRange, weekDates.length, template.preferredWeeks, input.currentWeeklyKm, strongThreshold);
@@ -66,7 +66,7 @@ export function generateTrainingPlan(input: PlanGeneratorInput): GeneratedTraini
     }
     if (weekType === 'race') {
       weeklyKm = Math.max(input.currentWeeklyKm * 0.35, targetPeakWeeklyKm * 0.42);
-      longRunKm = raceDistanceKm(input.raceDistance);
+      longRunKm = raceDistanceKm[input.raceDistance];
     }
     const shareCap = input.raceDistance === 'marathon' ? 0.48 : LONG_RUN_SHARE_CAP;
     if (weekType !== 'race' && longRunKm > weeklyKm * shareCap) weeklyKm = longRunKm / shareCap;
@@ -96,7 +96,6 @@ function milestoneForWeek(milestones: PlanGeneratorMilestoneRace[], startsOn: st
   return milestones.find((race) => { const date = parseIsoDate(race.date); return date >= start && date <= end; });
 }
 
-function raceDistanceKm(race: string): number { if (race === '5k') return 5; if (race === '10k') return 10; if (race === '15k') return 15; if (race === 'half_marathon') return 21.1; return 42.2; }
 
 function addDestinationWarnings(warnings: PlanWarning[], input: PlanGeneratorInput, weeks: number, targetLongRun: number, targetWeeklyKm: number, minLongRun: number, minWeeklyKm: number) {
   if (weeks < 8) warnings.push({ id: 'runway_too_short', severity: 'caution', message: 'Runway is very short, so the plan may safely under-target destination volume.' });

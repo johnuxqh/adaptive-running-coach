@@ -2,7 +2,7 @@ import type { GeneratedTrainingPlan } from './planTypes';
 import { goalKey, peakLongRunTargets, peakWeeklyTargets } from './targets';
 
 export interface EngineHealthRow {
-  caseId: string; raceDistance: string; raceGoal: string; weeksToRace: number; currentWeeklyKm: number; longestRunKm: number; runsPerWeek: number; peakLongRunKm: number; targetPeakLongRunMin: number; targetPeakLongRunMax: number; longRunTargetMet: boolean; peakWeeklyKm: number; targetPeakWeeklyKmMin: number; targetPeakWeeklyKmMax: number; weeklyVolumeTargetMet: boolean; recoveryWeeksPresent: boolean; taperPresent: boolean; raceWeekPresent: boolean; foundationCountValid: boolean; suspiciousWarningCount: number; engineScore: number; engineGrade: string; issues: string;
+  caseId: string; raceDistance: string; raceGoal: string; weeksToRace: number; currentWeeklyKm: number; longestRunKm: number; runsPerWeek: number; peakLongRunKm: number; peakLongRunWeek: number; targetPeakLongRunMin: number; targetPeakLongRunMax: number; longRunTargetMet: boolean; peakWeeklyKm: number; targetPeakWeeklyKmMin: number; targetPeakWeeklyKmMax: number; weeklyVolumeTargetMet: boolean; recoveryWeeksPresent: boolean; taperPresent: boolean; raceWeekPresent: boolean; foundationCountValid: boolean; suspiciousWarningCount: number; engineScore: number; engineGrade: string; issues: string;
 }
 
 export function evaluateEngineHealth(plan: GeneratedTrainingPlan, caseId = plan.id): EngineHealthRow {
@@ -10,7 +10,9 @@ export function evaluateEngineHealth(plan: GeneratedTrainingPlan, caseId = plan.
   const key = goalKey(input.raceGoal);
   const longTarget = peakLongRunTargets[input.raceDistance][key];
   const weeklyTarget = peakWeeklyTargets[input.raceDistance][key];
-  const peakLongRun = max(plan.weeks.flatMap((week) => week.foundationWorkouts.map((workout) => workout.type === 'long_run' ? workout.plannedDistanceKm ?? 0 : 0)));
+  const longRunByWeek = plan.weeks.map((week) => ({ weekNumber: week.weekNumber, km: max(week.foundationWorkouts.map((workout) => workout.type === 'long_run' ? workout.plannedDistanceKm ?? 0 : 0)) }));
+  const peakLongRun = max(longRunByWeek.map((week) => week.km));
+  const peakLongRunWeek = longRunByWeek.find((week) => week.km === peakLongRun)?.weekNumber ?? 0;
   const peakWeekly = max(plan.weeks.map((week) => week.targetDistanceRangeKm.max));
   const issues: string[] = [];
   const reasonable = input.longestRunKm >= longTarget.min * 0.55 && input.currentWeeklyKm >= weeklyTarget.min * 0.6 && plan.weeksFromNowToRaceWeek >= 10;
@@ -36,7 +38,7 @@ export function evaluateEngineHealth(plan: GeneratedTrainingPlan, caseId = plan.
   if (!foundationCountValid) score -= 10;
   score -= Math.min(15, plan.warnings.filter((warning) => warning.severity === 'caution').length * 2);
   const engineScore = Math.max(0, score);
-  return { caseId, raceDistance: input.raceDistance, raceGoal: input.raceGoal, weeksToRace: plan.weeksFromNowToRaceWeek, currentWeeklyKm: input.currentWeeklyKm, longestRunKm: input.longestRunKm, runsPerWeek: input.runsPerWeek, peakLongRunKm: peakLongRun, targetPeakLongRunMin: longTarget.min, targetPeakLongRunMax: longTarget.max, longRunTargetMet, peakWeeklyKm: peakWeekly, targetPeakWeeklyKmMin: weeklyTarget.min, targetPeakWeeklyKmMax: weeklyTarget.max, weeklyVolumeTargetMet, recoveryWeeksPresent, taperPresent, raceWeekPresent, foundationCountValid, suspiciousWarningCount, engineScore, engineGrade: grade(engineScore), issues: issues.join(' | ') };
+  return { caseId, raceDistance: input.raceDistance, raceGoal: input.raceGoal, weeksToRace: plan.weeksFromNowToRaceWeek, currentWeeklyKm: input.currentWeeklyKm, longestRunKm: input.longestRunKm, runsPerWeek: input.runsPerWeek, peakLongRunKm: peakLongRun, peakLongRunWeek, targetPeakLongRunMin: longTarget.min, targetPeakLongRunMax: longTarget.max, longRunTargetMet, peakWeeklyKm: peakWeekly, targetPeakWeeklyKmMin: weeklyTarget.min, targetPeakWeeklyKmMax: weeklyTarget.max, weeklyVolumeTargetMet, recoveryWeeksPresent, taperPresent, raceWeekPresent, foundationCountValid, suspiciousWarningCount, engineScore, engineGrade: grade(engineScore), issues: issues.join(' | ') };
 }
 function grade(score: number) { if (score >= 90) return 'excellent'; if (score >= 80) return 'acceptable'; if (score >= 60) return 'review needed'; return 'fail'; }
 function max(values: number[]) { return values.length ? Math.max(...values) : 0; }

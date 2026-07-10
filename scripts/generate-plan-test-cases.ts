@@ -55,7 +55,10 @@ function buildCases(): CaseRecord[] {
     }
   }
 
-  return selected.slice(0, 180).map((input, index) => {
+  selected.push({ athleteName: 'Lauren PB Marathon', raceDistance: 'marathon', raceGoal: 'Personal Best', raceDate: addDays(currentDate, 14 * 7 - 2), currentWeeklyKm: 35, longestRunKm: 19, runsPerWeek: 4, currentDate });
+  selected.push({ athleteName: 'Lauren Competitive Marathon', raceDistance: 'marathon', raceGoal: 'Race Competitively', raceDate: addDays(currentDate, 14 * 7 - 2), currentWeeklyKm: 35, longestRunKm: 19, runsPerWeek: 4, currentDate });
+
+  return selected.map((input, index) => {
     const plan = generateTrainingPlan(input);
     const caseId = `CASE-${String(index + 1).padStart(3, '0')}`;
     return { caseId, input, plan, suspicious: suspiciousPatterns(plan) };
@@ -90,7 +93,14 @@ function suspiciousPatterns(plan: GeneratedTrainingPlan): string[] {
   for (let index = 1; index < plan.weeks.length; index += 1) {
     const previous = plan.weeks[index - 1].targetDistanceRangeKm.max;
     const current = plan.weeks[index].targetDistanceRangeKm.max;
-    if (previous > 0 && current / previous > 1.18) warnings.push(`weekly km jump too high before week ${plan.weeks[index].weekNumber} (${previous}km to ${current}km)`);
+    if (previous > 0 && current / previous > 1.18) {
+      const previousWeek = plan.weeks[index - 1];
+      const currentWeek = plan.weeks[index];
+      const weekBeforeRecovery = plan.weeks[index - 2]?.targetDistanceRangeKm.max;
+      const isRecoveryBounce = previousWeek.weekType === 'recovery' && weekBeforeRecovery && current <= weekBeforeRecovery * 1.12;
+      const isTaperOrRace = currentWeek.phase === 'taper' || currentWeek.weekType === 'race';
+      if (!isRecoveryBounce && !isTaperOrRace) warnings.push(`weekly km jump too high before week ${currentWeek.weekNumber} (${previous}km to ${current}km)`);
+    }
   }
   if (plan.weeks.length > 8 && !plan.weeks.some((week) => week.weekType === 'recovery')) warnings.push('no recovery weeks in plan longer than 8 weeks');
   if (plan.weeks.at(-1)?.weekType !== 'race') warnings.push('race week not marked as Race');
@@ -122,10 +132,10 @@ function weekRows(cases: CaseRecord[]): string[][] {
 }
 
 function healthRows(cases: CaseRecord[]): string[][] {
-  const header = ['caseId','raceDistance','raceGoal','weeksToRace','currentWeeklyKm','longestRunKm','runsPerWeek','peakLongRunKm','targetPeakLongRunMin','targetPeakLongRunMax','longRunTargetMet','peakWeeklyKm','targetPeakWeeklyKmMin','targetPeakWeeklyKmMax','weeklyVolumeTargetMet','recoveryWeeksPresent','taperPresent','raceWeekPresent','foundationCountValid','suspiciousWarningCount','engineScore','engineGrade','issues'];
+  const header = ['caseId','raceDistance','raceGoal','weeksToRace','currentWeeklyKm','longestRunKm','runsPerWeek','achievedPeakLongRunKm','peakLongRunWeek','targetPeakLongRunMin','targetPeakLongRunMax','longRunTargetMet','achievedPeakWeeklyKm','targetPeakWeeklyKmMin','targetPeakWeeklyKmMax','weeklyVolumeTargetMet','recoveryWeeksPresent','taperPresent','raceWeekPresent','foundationCountValid','suspiciousWarningCount','engineScore','engineGrade','issues'];
   const rows = cases.map(({ caseId, plan }) => {
     const h = evaluateEngineHealth(plan, caseId);
-    return [h.caseId,h.raceDistance,h.raceGoal,String(h.weeksToRace),String(h.currentWeeklyKm),String(h.longestRunKm),String(h.runsPerWeek),String(h.peakLongRunKm),String(h.targetPeakLongRunMin),String(h.targetPeakLongRunMax),String(h.longRunTargetMet),String(h.peakWeeklyKm),String(h.targetPeakWeeklyKmMin),String(h.targetPeakWeeklyKmMax),String(h.weeklyVolumeTargetMet),String(h.recoveryWeeksPresent),String(h.taperPresent),String(h.raceWeekPresent),String(h.foundationCountValid),String(h.suspiciousWarningCount),String(h.engineScore),h.engineGrade,h.issues];
+    return [h.caseId,h.raceDistance,h.raceGoal,String(h.weeksToRace),String(h.currentWeeklyKm),String(h.longestRunKm),String(h.runsPerWeek),String(h.peakLongRunKm),String(h.peakLongRunWeek),String(h.targetPeakLongRunMin),String(h.targetPeakLongRunMax),String(h.longRunTargetMet),String(h.peakWeeklyKm),String(h.targetPeakWeeklyKmMin),String(h.targetPeakWeeklyKmMax),String(h.weeklyVolumeTargetMet),String(h.recoveryWeeksPresent),String(h.taperPresent),String(h.raceWeekPresent),String(h.foundationCountValid),String(h.suspiciousWarningCount),String(h.engineScore),h.engineGrade,h.issues];
   });
   return [header, ...rows];
 }
