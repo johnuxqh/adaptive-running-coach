@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { colors, fontFamily, icons, radius, shadows, spacing, theme, typography } from '../../design';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, InputHTMLAttributes, ReactNode } from 'react';
 
 const px = (value: number) => `${value}px`;
 const stack = (gap: number = spacing.md): CSSProperties => ({ display: 'grid', gap: px(gap) });
@@ -21,7 +21,7 @@ export function IllustrationPlaceholder({ children }: { children: ReactNode }) {
 export function StatCard({ label, value, detail }: { label: string; value: string; detail?: string }) { return <SectionCard><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0, textTransform: 'uppercase' }}>{label}</p><p style={{ ...typography.h2, color: colors.neutral.text, margin: `${px(spacing.xs)} 0 0` }}>{value}</p>{detail ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: `${px(spacing.xs)} 0 0` }}>{detail}</p> : null}</SectionCard>; }
 export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'green' | 'sky' | 'purple' | 'orange' }) { const map = { neutral: [colors.neutral.faint, colors.neutral.muted], green: [colors.primary.greenTint, colors.primary.green], sky: [colors.accent.skyTint, colors.accent.sky], purple: [colors.accent.purpleTint, colors.accent.purple], orange: [colors.accent.orangeTint, colors.accent.orange] } as const; const [bg, fg] = map[tone]; return <span style={{ ...typography.caption, display: 'inline-flex', width: 'fit-content', borderRadius: radius.chip, padding: `${px(spacing.xs)} ${px(spacing.sm)}`, color: fg, background: bg }}>{children}</span>; }
 export function TextArea({ placeholder }: { placeholder: string }) { return <textarea placeholder={placeholder} style={{ ...typography.body, width: '100%', minHeight: px(120), boxSizing: 'border-box', resize: 'vertical', border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, padding: px(spacing.md), color: colors.neutral.text, background: colors.neutral.surface }} />; }
-export function TextInput({ placeholder }: { placeholder: string }) { return <input placeholder={placeholder} style={{ ...typography.body, width: '100%', boxSizing: 'border-box', minHeight: px(56), border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, padding: px(spacing.md), color: colors.neutral.text, background: colors.neutral.surface }} />; }
+export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) { return <input {...props} style={{ ...typography.body, width: '100%', boxSizing: 'border-box', minHeight: px(56), border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, padding: px(spacing.md), color: colors.neutral.text, background: colors.neutral.surface }} />; }
 
 const workoutMap = { easy: [colors.primary.greenTint, colors.primary.green], threshold: [colors.accent.purpleTint, colors.accent.purple], longRun: [colors.accent.orangeTint, colors.accent.orange], recovery: [colors.accent.skyTint, colors.accent.sky], optional: [colors.neutral.faint, colors.neutral.muted], extra: [colors.accent.slateTint, colors.accent.slate] } as const;
 export type WorkoutTone = keyof typeof workoutMap;
