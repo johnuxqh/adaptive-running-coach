@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, ProgressBar, SecondaryButton, SectionCard, StatusChip, TextInput } from '../components/ui';
 import { colors, radius, spacing, typography } from '../design';
 import { addDays, parseIsoDate, toIsoDate } from '../engine/dateHelpers';
@@ -24,6 +25,7 @@ const extraTypes: { label: string; type: GeneratedWorkoutType }[] = [
 ];
 
 export function WeekPlannerPage() {
+  const navigate = useNavigate();
   const plan = readStorageValue<GeneratedTrainingPlan | null>(storageKeys.plan, null);
   const storedWeek = readStorageValue<GeneratedTrainingWeek | null>(storageKeys.currentWeek, null);
   const currentWeek = storedWeek ?? plan?.weeks[0] ?? null;
@@ -32,6 +34,7 @@ export function WeekPlannerPage() {
   const [extraTitle, setExtraTitle] = useState('');
   const [extraTypeLabel, setExtraTypeLabel] = useState(extraTypes[0].label);
   const [extraCategory, setExtraCategory] = useState<PlannerCategory>('extra');
+  const [feedback, setFeedback] = useState('');
 
   const workouts = useMemo(() => currentWeek ? [...currentWeek.foundationWorkouts, ...currentWeek.optionalWorkouts, ...planner.extraWorkouts.filter((workout) => workout.weekNumber === currentWeek.weekNumber)] : [], [currentWeek, planner.extraWorkouts]);
   const days = useMemo(() => currentWeek ? dayNames.map((name, index) => ({ name, date: toIsoDate(addDays(parseIsoDate(currentWeek.startsOn), index)) })) : [], [currentWeek]);
@@ -42,8 +45,13 @@ export function WeekPlannerPage() {
   const warnings = buildWarnings(assignedByDay);
 
   function savePlanner(next: PlannerState) { setPlanner(next); writeStorageValue(plannerKey, next); }
-  function assign(workoutId: string, date: string) { savePlanner({ ...planner, assignments: { ...planner.assignments, [workoutId]: date } }); setPicker(null); }
-  function remove(workoutId: string) { const { [workoutId]: _removed, ...assignments } = planner.assignments; savePlanner({ ...planner, assignments }); }
+  function assign(workoutId: string, date: string) {
+    savePlanner({ ...planner, assignments: { ...planner.assignments, [workoutId]: date } });
+    const dayName = days.find((day) => day.date === date)?.name ?? 'that day';
+    setFeedback(`Workout planned for ${dayName}.`);
+    setPicker(null);
+  }
+  function remove(workoutId: string) { const { [workoutId]: _removed, ...assignments } = planner.assignments; savePlanner({ ...planner, assignments }); setFeedback('Workout returned to Remaining Workouts.'); }
   function addExtraWorkout() {
     if (!currentWeek) return;
     const selected = extraTypes.find((item) => item.label === extraTypeLabel) ?? extraTypes[0];
@@ -74,12 +82,15 @@ export function WeekPlannerPage() {
 
   return <PageStack>
     <HeroTitle eyebrow="Weekly planner" title={`Week ${currentWeek.weekNumber}`}>{formatPhase(currentWeek.phase)} • {formatWeekType(currentWeek.weekType)}</HeroTitle>
+    <PrimaryButton onClick={() => navigate('/plan-review')}>View Full Plan</PrimaryButton>
     <SectionCard><CardStack>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: spacing.md }}><div><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>TARGET</p><h3 style={{ ...typography.h2, margin: `${spacing.xs}px 0 0` }}>{currentWeek.targetDistanceRangeKm.min}–{currentWeek.targetDistanceRangeKm.max} km</h3></div><div style={{ textAlign: 'right' }}><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>TIME</p><h3 style={{ ...typography.h2, margin: `${spacing.xs}px 0 0` }}>{currentWeek.targetDurationRangeMin.min}–{currentWeek.targetDurationRangeMin.max} min</h3></div></div>
       <ProgressRow label="Foundation" value={foundationDone} total={currentWeek.foundationWorkouts.length} />
       <ProgressRow label="Optional" value={optionalDone} total={currentWeek.optionalWorkouts.length} />
       <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{currentWeek.coachingMessage}</p>
     </CardStack></SectionCard>
+    <WeekSnapshot days={assignedByDay} unplannedCount={remaining.length} foundationDone={foundationDone} foundationTotal={currentWeek.foundationWorkouts.length} optionalDone={optionalDone} optionalTotal={currentWeek.optionalWorkouts.length} />
+    {feedback ? <InfoBanner>{feedback}</InfoBanner> : null}
     {today && today.workouts.length === 0 ? <InfoBanner>No workout planned today. <button onClick={() => setPicker({ date: today.date, title: "Choose Today's Workout" })} style={linkButton}>Choose Today's Workout</button></InfoBanner> : null}
     {warnings.map((warning) => <WarningRibbon key={warning}>{warning}</WarningRibbon>)}
     <CardStack>{assignedByDay.map((day) => <DayCard key={day.date} day={day} onAssign={() => setPicker({ date: day.date, title: `Assign to ${day.name}` })} onMove={(workout) => setPicker({ workoutId: workout.id, title: `Move ${workout.title}` })} onRemove={remove} />)}</CardStack>
@@ -96,6 +107,23 @@ function formatDate(date: string) { return new Intl.DateTimeFormat('en', { month
 function workoutTone(workout: GeneratedWorkout) { if (workout.type === 'quality_session') return 'purple'; if (workout.type === 'long_run') return 'orange'; if (workout.type === 'recovery' || workout.type === 'cross_training') return 'sky'; return workout.category === 'extra' ? 'purple' : 'green'; }
 function hard(workout: GeneratedWorkout) { return workout.type === 'quality_session' || workout.type === 'long_run' || workout.intensity.toLowerCase().includes('hard'); }
 function buildWarnings(days: { workouts: GeneratedWorkout[] }[]) { const warnings: string[] = []; const hardDays = days.filter((day) => day.workouts.some(hard)).length; days.forEach((day, index) => { const today = day.workouts; const previous = days[index - 1]?.workouts ?? []; if (today.some((w) => w.type === 'quality_session') && previous.some((w) => w.type === 'quality_session')) warnings.push('Gentle note: threshold-style sessions on back-to-back days can feel spicy.'); if (today.some((w) => w.type === 'long_run') && previous.some((w) => w.type === 'quality_session')) warnings.push('Friendly reminder: a long run after threshold may need extra recovery.'); }); if (hardDays >= 3) warnings.push('This week now has three hard days. Keep the easy days truly easy.'); return [...new Set(warnings)]; }
+
+function WeekSnapshot({ days, unplannedCount, foundationDone, foundationTotal, optionalDone, optionalTotal }: { days: Array<{ name: string; date: string; workouts: GeneratedWorkout[] }>; unplannedCount: number; foundationDone: number; foundationTotal: number; optionalDone: number; optionalTotal: number }) {
+  return <SectionCard><CardStack>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.md }}>
+      <div><h3 style={{ ...typography.h3, margin: 0 }}>Week Snapshot</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{unplannedCount} unplanned workout{unplannedCount === 1 ? '' : 's'}</p></div>
+      <div style={{ textAlign: 'right' }}><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Foundation {foundationDone}/{foundationTotal}</p><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>Optional {optionalDone}/{optionalTotal}</p></div>
+    </div>
+    <div style={{ display: 'grid', gap: spacing.sm }}>
+      {days.map((day) => <div key={day.date} style={{ display: 'grid', gridTemplateColumns: '84px minmax(0, 1fr)', gap: spacing.sm, alignItems: 'start' }}>
+        <p style={{ ...typography.caption, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{day.name.slice(0, 3)}</p>
+        <div style={{ display: 'flex', gap: spacing.xs, flexWrap: 'wrap', minWidth: 0 }}>
+          {day.workouts.length ? day.workouts.map((workout) => <Chip key={workout.id} tone={workoutTone(workout)}>{workout.title}</Chip>) : <span style={{ ...typography.small, color: colors.neutral.muted }}>Open</span>}
+        </div>
+      </div>)}
+    </div>
+  </CardStack></SectionCard>;
+}
 
 function ProgressRow({ label, value, total }: { label: string; value: number; total: number }) { return <div><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: spacing.xs }}><span style={typography.small}>{label}</span><span style={{ ...typography.small, color: colors.neutral.muted }}>{value} / {total}</span></div><ProgressBar value={total ? (value / total) * 100 : 0} /></div>; }
 function WarningRibbon({ children }: { children: string }) { return <div style={{ ...typography.small, color: colors.accent.amber, background: colors.accent.amberTint, border: `1px solid ${colors.accent.amber}`, borderRadius: radius.card, padding: spacing.md }}>{children}</div>; }

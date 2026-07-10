@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { CardStack, HeroTitle, InfoBanner, PageStack, PrimaryButton, SectionCard, StatCard } from '../components/ui';
+import { CardStack, HeroTitle, InfoBanner, PageStack, PrimaryButton, SecondaryButton, SectionCard, StatCard } from '../components/ui';
 import { colors, typography } from '../design';
 import type { GeneratedTrainingPlan } from '../engine/planTypes';
 import { readStorageValue, storageKeys } from '../utils/storage';
@@ -25,6 +25,7 @@ export function PlanSummaryPage() {
           until<br />{raceLabels[summary.raceDistance]} on {summary.raceDate}
         </HeroTitle>
         <PrimaryButton onClick={() => navigate('/today')}>Start My Plan</PrimaryButton>
+        <SecondaryButton onClick={() => navigate('/plan-review')}>Review Full Plan</SecondaryButton>
       </SectionCard>
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: '1fr 1fr' }}>
         <StatCard label="Athlete" value={summary.athleteName} />
