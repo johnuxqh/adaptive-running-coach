@@ -93,3 +93,92 @@ export interface PlanTemplateDefinition {
   foundationWorkoutMix: WorkoutId[];
   emphasis: string[];
 }
+
+export interface PlanGeneratorMilestoneRace {
+  id?: string;
+  name: string;
+  date: string;
+  distance: RaceType;
+}
+
+export interface PlanGeneratorInput {
+  athleteName: string;
+  raceDistance: RaceType;
+  raceDate: string;
+  raceGoal: string;
+  currentWeeklyKm: number;
+  longestRunKm: number;
+  runsPerWeek: 3 | 4 | 5 | 6;
+  milestoneRaces?: PlanGeneratorMilestoneRace[];
+  currentDate?: string;
+}
+
+export type GeneratedWorkoutType =
+  | 'easy_run'
+  | 'quality_session'
+  | 'long_run'
+  | 'recovery'
+  | 'shakeout'
+  | 'cross_training'
+  | 'mobility'
+  | 'race';
+
+export type GeneratedWorkoutStatus = 'unplanned' | 'planned' | 'completed' | 'skipped';
+
+export interface GeneratedWorkout {
+  id: string;
+  weekNumber: number;
+  title: string;
+  type: GeneratedWorkoutType;
+  category: 'foundation' | 'optional' | 'extra';
+  plannedDistanceKm?: number;
+  plannedDurationMin?: number;
+  intensity: string;
+  purpose: string;
+  warmup: string;
+  mainSet: string;
+  cooldown: string;
+  coachTip: string;
+  suggestedDay: string;
+  status: GeneratedWorkoutStatus;
+  warningIds?: string[];
+}
+
+export interface GeneratedTrainingWeek {
+  id: string;
+  weekNumber: number;
+  startsOn: string;
+  endsOn: string;
+  phase: TrainingPhase;
+  weekType: WeekType;
+  targetDistanceRangeKm: { min: number; max: number };
+  targetDurationRangeMin: { min: number; max: number };
+  foundationWorkouts: GeneratedWorkout[];
+  optionalWorkouts: GeneratedWorkout[];
+  coachingMessage: string;
+  warnings: string[];
+}
+
+export interface GeneratedPlanSummary {
+  athleteName: string;
+  raceDistance: RaceType;
+  raceDate: string;
+  daysUntilRace: number;
+  trainingWeeks: number;
+  totalFoundationWorkouts: number;
+  totalOptionalWorkouts: number;
+  estimatedDistanceRangeKm: { min: number; max: number };
+  estimatedTimeRangeMin: { min: number; max: number };
+  planEmphasis: string[];
+  planWarnings: string[];
+  rules: string[];
+}
+
+export interface GeneratedTrainingPlan {
+  id: string;
+  inputs: PlanGeneratorInput;
+  weeksFromNowToRaceWeek: number;
+  weeks: GeneratedTrainingWeek[];
+  summary: GeneratedPlanSummary;
+  warnings: import('./warnings').PlanWarning[];
+}
