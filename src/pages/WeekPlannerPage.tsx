@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, ProgressBar, SecondaryButton, SectionCard, SlidePanel, StatusChip, TextInput } from '../components/ui';
+import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, ProgressBar, SecondaryButton, SectionCard, SlidePanel, StatusChip, TextArea, TextInput } from '../components/ui';
 import { colors, radius, spacing, typography } from '../design';
 import { addDays, parseIsoDate, toIsoDate } from '../engine/dateHelpers';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, GeneratedWorkoutType, TrainingPhase, WeekType } from '../engine/planTypes';
@@ -10,7 +10,7 @@ const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const plannerKey = storageKeys.weeklyPlanner;
 type PlannerCategory = 'foundation' | 'optional' | 'extra';
 type PlannerState = { assignments: Record<string, string>; extraWorkouts: GeneratedWorkout[] };
-type PanelMode = { kind: 'remaining' } | { kind: 'chooseForDay'; date: string } | { kind: 'day'; date: string } | { kind: 'assignWorkout'; workoutId: string } | { kind: 'moveWorkout'; workoutId: string } | null;
+type PanelMode = { kind: 'remaining' } | { kind: 'chooseForDay'; date: string } | { kind: 'day'; date: string } | { kind: 'assignWorkout'; workoutId: string } | { kind: 'moveWorkout'; workoutId: string } | { kind: 'detail'; workoutId: string } | { kind: 'complete'; workoutId: string; date?: string } | { kind: 'past'; date: string } | null;
 const emptyPlanner: PlannerState = { assignments: {}, extraWorkouts: [] };
 
 const extraTypes: { label: string; type: GeneratedWorkoutType }[] = [
@@ -50,6 +50,12 @@ export function WeekPlannerPage() {
     const dayName = days.find((day) => day.date === date)?.name ?? 'that day';
     setFeedback(`Workout planned for ${dayName}.`);
     setPanel(null);
+  }
+  function completeWorkout(workoutId: string) {
+    const update = (week: GeneratedTrainingWeek) => ({ ...week, foundationWorkouts: week.foundationWorkouts.map((w) => w.id === workoutId ? { ...w, status: 'completed' as const } : w), optionalWorkouts: week.optionalWorkouts.map((w) => w.id === workoutId ? { ...w, status: 'completed' as const } : w) });
+    if (currentWeek) writeStorageValue(storageKeys.currentWeek, update(currentWeek));
+    if (plan) writeStorageValue(storageKeys.plan, { ...plan, weeks: plan.weeks.map((week) => week.weekNumber === currentWeek?.weekNumber ? update(week) : week) });
+    setFeedback('Workout completed. Nice work.'); setPanel(null);
   }
   function remove(workoutId: string) { const { [workoutId]: _removed, ...assignments } = planner.assignments; savePlanner({ ...planner, assignments }); setFeedback('Workout returned to Remaining Workouts.'); }
   function addExtraWorkout() {
@@ -100,15 +106,18 @@ export function WeekPlannerPage() {
     {feedback ? <InfoBanner>{feedback}</InfoBanner> : null}
     {today && today.workouts.length === 0 ? <InfoBanner>No workout planned today. <button onClick={() => setPanel({ kind: 'chooseForDay', date: today.date })} style={linkButton}>Choose Today&apos;s Workout</button></InfoBanner> : null}
     {warnings.map((warning) => <WarningRibbon key={warning}>{warning}</WarningRibbon>)}
-    <WeekSnapshot days={assignedByDay} onDayTap={(day) => setPanel({ kind: day.workouts.length ? 'day' : 'chooseForDay', date: day.date })} />
+    <WeekSnapshot days={assignedByDay} todayIso={todayIso} onDayTap={(day) => setPanel({ kind: day.date < todayIso ? 'past' : day.workouts.length ? 'day' : 'chooseForDay', date: day.date })} />
     <button type="button" onClick={() => setPanel({ kind: 'remaining' })} style={remainingButtonStyle}>
       <span><strong>Remaining Workouts</strong><small>{remaining.length} workout{remaining.length === 1 ? '' : 's'} waiting</small></span>
       <span aria-hidden="true">→</span>
     </button>
     <SlidePanel isOpen={Boolean(panel)} title={panelTitle(panel, activeDay, activeWorkout)} subtitle={panelSubtitle(panel, activeDay)} onClose={() => setPanel(null)}>
       {panel?.kind === 'remaining' ? <RemainingPanel remaining={remaining} onAssign={(workout) => setPanel({ kind: 'assignWorkout', workoutId: workout.id })} extraTitle={extraTitle} setExtraTitle={setExtraTitle} extraTypeLabel={extraTypeLabel} setExtraTypeLabel={setExtraTypeLabel} extraCategory={extraCategory} setExtraCategory={setExtraCategory} onAdd={addExtraWorkout} /> : null}
+      {panel?.kind === 'past' && activeDay ? <PastDayPanel day={activeDay} onComplete={(workout) => setPanel({ kind: 'complete', workoutId: workout.id, date: activeDay.date })} /> : null}
       {panel?.kind === 'chooseForDay' && activeDay ? <ChooseForDayPanel day={activeDay} remaining={remaining} onAssign={(workout) => assign(workout.id, activeDay.date)} onOpenRemaining={() => setPanel({ kind: 'remaining' })} /> : null}
-      {panel?.kind === 'day' && activeDay ? <PlannedDayPanel day={activeDay} onView={(workout) => navigate(`/workout/${workout.id}`)} onMove={(workout) => setPanel({ kind: 'moveWorkout', workoutId: workout.id })} onRemove={remove} /> : null}
+      {panel?.kind === 'day' && activeDay ? <PlannedDayPanel day={activeDay} onView={(workout) => setPanel({ kind: 'detail', workoutId: workout.id })} onMove={(workout) => setPanel({ kind: 'moveWorkout', workoutId: workout.id })} onRemove={remove} /> : null}
+      {panel?.kind === 'detail' && activeWorkout ? <WorkoutDetailPanel workout={activeWorkout} onMove={() => setPanel({ kind: 'moveWorkout', workoutId: activeWorkout.id })} onComplete={() => setPanel({ kind: 'complete', workoutId: activeWorkout.id })} onRemove={() => remove(activeWorkout.id)} /> : null}
+      {panel?.kind === 'complete' && activeWorkout ? <CompletePanel workout={activeWorkout} onSave={() => completeWorkout(activeWorkout.id)} /> : null}
       {(panel?.kind === 'assignWorkout' || panel?.kind === 'moveWorkout') && activeWorkout ? <DayPickerPanel workout={activeWorkout} days={days} onAssign={(date) => assign(activeWorkout.id, date)} /> : null}
     </SlidePanel>
   </PageStack>;
@@ -122,20 +131,20 @@ function workoutTone(workout: GeneratedWorkout) { if (workout.type === 'quality_
 function hard(workout: GeneratedWorkout) { return workout.type === 'quality_session' || workout.type === 'long_run' || workout.intensity.toLowerCase().includes('hard'); }
 function buildWarnings(days: { workouts: GeneratedWorkout[] }[]) { const warnings: string[] = []; const hardDays = days.filter((day) => day.workouts.some(hard)).length; days.forEach((day, index) => { const today = day.workouts; const previous = days[index - 1]?.workouts ?? []; if (today.some((w) => w.type === 'quality_session') && previous.some((w) => w.type === 'quality_session')) warnings.push('Gentle note: threshold-style sessions on back-to-back days can feel spicy.'); if (today.some((w) => w.type === 'long_run') && previous.some((w) => w.type === 'quality_session')) warnings.push('Friendly reminder: a long run after threshold may need extra recovery.'); }); if (hardDays >= 3) warnings.push('This week now has three hard days. Keep the easy days truly easy.'); return [...new Set(warnings)]; }
 
-function WeekSnapshot({ days, onDayTap }: { days: Array<{ name: string; date: string; workouts: GeneratedWorkout[] }>; onDayTap: (day: { name: string; date: string; workouts: GeneratedWorkout[] }) => void }) {
+function WeekSnapshot({ days, todayIso, onDayTap }: { days: Array<{ name: string; date: string; workouts: GeneratedWorkout[] }>; todayIso: string; onDayTap: (day: { name: string; date: string; workouts: GeneratedWorkout[] }) => void }) {
   return <SectionCard><CardStack>
     <h3 style={{ ...typography.h3, margin: 0 }}>Monday–Sunday</h3>
     <div style={{ display: 'grid', gap: spacing.sm }}>
-      {days.map((day) => <button key={day.date} type="button" onClick={() => onDayTap(day)} style={dayButtonStyle}>
+      {days.map((day) => { const past = day.date < todayIso; return <button key={day.date} type="button" onClick={() => onDayTap(day)} style={{ ...dayButtonStyle, opacity: past ? 0.55 : 1, background: past ? colors.neutral.faint : colors.neutral.surface }}>
         <div style={{ minWidth: 0 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: spacing.sm }}><strong>{day.name}</strong><span style={{ ...typography.small, color: colors.neutral.muted }}>{formatDate(day.date)}</span></div>
           <div style={{ display: 'flex', gap: spacing.xs, flexWrap: 'wrap', marginTop: spacing.xs }}>{day.workouts.length ? day.workouts.map((workout) => <Chip key={workout.id} tone={workoutTone(workout)}>{workout.title}</Chip>) : <span style={{ ...typography.small, color: colors.neutral.muted }}>Open</span>}</div></div>
-        <StatusChip tone={day.workouts.some((workout) => workout.status === 'completed') ? 'completed' : day.workouts.length ? 'moved' : 'notPlanned'} />
-      </button>)}
+        <span style={{ ...typography.caption, color: colors.neutral.muted }}>{day.workouts.some((workout) => workout.status === 'completed') ? 'Completed' : past ? (day.workouts.length ? 'Missed' : 'Past') : day.workouts.length ? 'Planned' : 'Open'}</span>
+      </button>})}
     </div>
   </CardStack></SectionCard>;
 }
 function Stat({ label, value, detail }: { label: string; value: string; detail?: string }) { return <div><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>{label}</p><h3 style={{ ...typography.h3, margin: `${spacing.xs}px 0 0` }}>{value}</h3>{detail ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{detail}</p> : null}</div>; }
-function panelTitle(panel: PanelMode, day?: { name: string } | null, workout?: GeneratedWorkout | null) { if (!panel) return ''; if (panel.kind === 'remaining') return 'Remaining Workouts'; if (panel.kind === 'chooseForDay' || panel.kind === 'day') return day?.name ?? 'Day'; return panel.kind === 'moveWorkout' ? `Move ${workout?.title ?? 'Workout'}` : `Assign ${workout?.title ?? 'Workout'}`; }
+function panelTitle(panel: PanelMode, day?: { name: string } | null, workout?: GeneratedWorkout | null) { if (!panel) return ''; if (panel.kind === 'past') return 'Update past day'; if (panel.kind === 'detail') return workout?.title ?? 'Workout details'; if (panel.kind === 'complete') return 'Complete workout'; if (panel.kind === 'remaining') return 'Remaining Workouts'; if (panel.kind === 'chooseForDay' || panel.kind === 'day') return day?.name ?? 'Day'; return panel.kind === 'moveWorkout' ? `Move ${workout?.title ?? 'Workout'}` : `Assign ${workout?.title ?? 'Workout'}`; }
 function panelSubtitle(panel: PanelMode, day?: { workouts: GeneratedWorkout[] } | null) { if (panel?.kind === 'chooseForDay') return 'Choose a workout for this day'; if (panel?.kind === 'day') return day?.workouts.length ? 'Planned workouts' : 'Open'; return undefined; }
 function ProgressRow({ label, value, total }: { label: string; value: number; total: number }) { return <div><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: spacing.xs }}><span style={typography.small}>{label}</span><span style={{ ...typography.small, color: colors.neutral.muted }}>{value} / {total}</span></div><ProgressBar value={total ? (value / total) * 100 : 0} /></div>; }
 function WarningRibbon({ children }: { children: string }) { return <div style={{ ...typography.small, color: colors.accent.amber, background: colors.accent.amberTint, border: `1px solid ${colors.accent.amber}`, borderRadius: radius.card, padding: spacing.md }}>{children}</div>; }
@@ -150,3 +159,8 @@ const workoutCardStyle = { border: `1px solid ${colors.neutral.border}`, borderR
 const workoutButtonStyle = { ...workoutCardStyle, width: '100%', textAlign: 'left' as const, color: colors.neutral.text, cursor: 'pointer' } as const;
 const remainingButtonStyle = { ...typography.body, display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.lg, background: colors.neutral.surface, color: colors.neutral.text, boxShadow: 'none', cursor: 'pointer' } as const;
 const linkButton = { ...typography.button, color: colors.accent.sky, background: 'transparent', border: 0, padding: 0, textDecoration: 'underline', cursor: 'pointer' };
+
+function WorkoutDetailPanel({ workout, onMove, onComplete, onRemove }: { workout: GeneratedWorkout; onMove: () => void; onComplete: () => void; onRemove: () => void }) { return <CardStack><WorkoutMini workout={workout} /><Detail label="Purpose" value={workout.purpose} /><Detail label="Warmup" value={workout.warmup} /><Detail label="Main set" value={workout.mainSet} /><Detail label="Cooldown" value={workout.cooldown} /><Detail label="Coach tip" value={workout.coachTip} /><SecondaryButton onClick={onMove}>Move</SecondaryButton><PrimaryButton onClick={onComplete}>Complete</PrimaryButton><SecondaryButton onClick={onRemove}>Remove</SecondaryButton></CardStack>; }
+function PastDayPanel({ day, onComplete }: { day: { workouts: GeneratedWorkout[] }; onComplete: (workout: GeneratedWorkout) => void }) { return <CardStack><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Past days cannot receive new future assignments. Record what happened instead.</p>{day.workouts.length ? day.workouts.map((workout) => <WorkoutMini key={workout.id} workout={workout}><PrimaryButton onClick={() => onComplete(workout)}>Update past day</PrimaryButton></WorkoutMini>) : <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>No workout was planned for this day.</p>}</CardStack>; }
+function CompletePanel({ workout, onSave }: { workout: GeneratedWorkout; onSave: () => void }) { return <CardStack><WorkoutMini workout={workout} /><div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: spacing.xs }}>{['😫','🙁','😐','🙂','😁'].map((feel) => <button key={feel} type="button" style={{ minHeight: 44, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.button, background: colors.neutral.surface }}>{feel}</button>)}</div><TextArea placeholder="Add note" /><TextInput placeholder="Actual time" inputMode="numeric" /><TextInput placeholder="Actual distance" inputMode="decimal" /><PrimaryButton onClick={onSave}>Save</PrimaryButton></CardStack>; }
+function Detail({ label, value }: { label: string; value: string }) { return <div><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>{label}</p><p style={{ ...typography.small, color: colors.neutral.text, margin: `${spacing.xs}px 0 0` }}>{value}</p></div>; }

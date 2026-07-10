@@ -87,7 +87,7 @@ export function OnboardingPage() {
 
   function addMilestone() {
     if (!form.milestoneDate) {
-      setError('Choose a milestone race date, or tap Done to skip this step.');
+      setError('Choose a milestone race date, or tap Skip to continue without one.');
       return;
     }
     if (!isFutureDate(form.milestoneDate)) {
@@ -150,14 +150,14 @@ export function OnboardingPage() {
 }
 
 function renderStep({ step, form, updateForm, addMilestone, error, nextStep }: { step: number; form: FormState; updateForm: (next: Partial<FormState>) => void; addMilestone: () => void; error: string; nextStep: () => void }) {
-  if (step === 0) return <><HeroTitle eyebrow="Question 1 of 8" title="What should I call you?" /><TextInput placeholder="Lauren" value={form.name} onChange={(event) => updateForm({ name: event.currentTarget.value })} /></>;
+  if (step === 0) return <><HeroTitle eyebrow="Question 1 of 8" title="What should I call you?" /><TextInput placeholder="First name" value={form.name} onChange={(event) => updateForm({ name: event.currentTarget.value })} /></>;
   if (step === 1) return <ChoiceStep eyebrow="Question 2 of 8" title="What are we training for?" options={raceOptions} selected={form.raceDistance} onSelect={(value) => updateForm({ raceDistance: value })} />;
   if (step === 2) return <><HeroTitle eyebrow="Question 3 of 8" title="When is race day?" /><input aria-label="Race day" type="date" value={form.raceDate} onChange={(event) => updateForm({ raceDate: event.currentTarget.value })} style={inputStyle} /></>;
   if (step === 3) return <ChoiceStep eyebrow="Question 4 of 8" title="What is your goal?" options={goalOptions} selected={form.goal} onSelect={(value) => updateForm({ goal: value })} />;
   if (step === 4) return <SliderStep eyebrow="Question 5 of 8" title="How many kilometres do you currently run each week?" value={form.currentWeeklyKm} min={5} max={120} unit="km" onChange={(value) => updateForm({ currentWeeklyKm: value })} />;
   if (step === 5) return <SliderStep eyebrow="Question 6 of 8" title="What is the longest run you've completed in the last four weeks?" value={form.longestRunKm} min={3} max={40} unit="km" onChange={(value) => updateForm({ longestRunKm: value })} />;
   if (step === 6) return <ChoiceStep eyebrow="Question 7 of 8" title="Realistically..." body="How many days each week can you run?" options={runsPerWeekOptions.map((value) => ({ label: String(value), value }))} selected={form.runsPerWeek} onSelect={(value) => updateForm({ runsPerWeek: value })} />;
-  if (step === 7) return <><HeroTitle eyebrow="Question 8 of 8" title="Do you have any milestone races before your goal race?">Optional. Add one if it matters, or continue without one.</HeroTitle><label style={fieldLabelStyle}>Distance</label><select value={form.milestoneDistance} onChange={(event) => updateForm({ milestoneDistance: event.currentTarget.value as RaceType })} style={inputStyle}>{raceOptions.map((race) => <option key={race.value} value={race.value}>{race.label}</option>)}</select><label style={fieldLabelStyle}>Date</label><input aria-label="Milestone race date" type="date" value={form.milestoneDate} onChange={(event) => updateForm({ milestoneDate: event.currentTarget.value })} style={inputStyle} /><PrimaryButton onClick={addMilestone}>Add Milestone</PrimaryButton>{form.milestones.map((race) => <p key={race.id} style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{race.name} · {race.date}</p>)}<SecondaryButton onClick={nextStep}>{form.milestones.length ? 'Done' : 'Skip'}</SecondaryButton><PrimaryButton onClick={nextStep}>Continue</PrimaryButton>{error ? null : null}</>;
+  if (step === 7) return <><HeroTitle eyebrow="Question 8 of 8" title="Do you have any milestone races before your goal race?">Optional. Add one if it matters, or continue without one.</HeroTitle><label style={fieldLabelStyle}>Distance</label><select value={form.milestoneDistance} onChange={(event) => updateForm({ milestoneDistance: event.currentTarget.value as RaceType })} style={inputStyle}>{raceOptions.map((race) => <option key={race.value} value={race.value}>{race.label}</option>)}</select><label style={fieldLabelStyle}>Date</label><input aria-label="Milestone race date" type="date" value={form.milestoneDate} onChange={(event) => updateForm({ milestoneDate: event.currentTarget.value })} style={inputStyle} /><PrimaryButton onClick={addMilestone}>Add Milestone</PrimaryButton>{form.milestones.map((race) => <p key={race.id} style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{race.name} · {race.date}</p>)}<SecondaryButton onClick={nextStep}>{form.milestones.length ? 'Continue' : 'Skip'}</SecondaryButton>{error ? null : null}</>;
   return <HeroTitle title="Perfect.">I&apos;ve got everything I need.<br />I&apos;ll build your personalised plan using evidence-based coaching principles.</HeroTitle>;
 }
 
@@ -182,7 +182,7 @@ function OptionButton({ selected, onClick, children }: { selected: boolean; onCl
 }
 
 function SliderStep({ eyebrow, title, value, min, max, unit, onChange }: { eyebrow: string; title: string; value: number; min: number; max: number; unit: string; onChange: (value: number) => void }) {
-  return <><HeroTitle eyebrow={eyebrow} title={title} /><p style={{ ...typography.h2, color: colors.neutral.text, margin: 0 }}>{value} {unit}</p><input aria-label={title} type="range" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.currentTarget.value))} /></>;
+  return <><HeroTitle eyebrow={eyebrow} title={title} /><p style={{ ...typography.h2, color: colors.neutral.text, margin: 0 }}>{value} {unit}</p><input aria-label={title} type="range" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.currentTarget.value))} style={{ width: '100%' }} /><TextInput aria-label={`${title} number`} type="number" inputMode="numeric" min={min} max={max} value={value} onChange={(event) => onChange(Math.max(min, Math.min(max, Number(event.currentTarget.value) || min)))} /></>;
 }
 
 function isFutureDate(date: string) {
