@@ -5,7 +5,7 @@ import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, Secti
 import { colors, radius, spacing, typography } from '../design';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, RaceType, TrainingPhase, WeekType } from '../engine/planTypes';
 import { readStorageValue, storageKeys, writeStorageValue } from '../utils/storage';
-import { buildSuggestedPlanner, type PlannerState } from '../utils/planning';
+import { buildSuggestedPlanner, suggestedDateForWorkout, type PlannerState } from '../utils/planning';
 
 const raceLabels: Record<RaceType, string> = { '5k': '5 km', '10k': '10 km', '15k': '15 km', half_marathon: 'Half Marathon', marathon: 'Marathon' };
 const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -51,12 +51,14 @@ function WeekReviewCard({ week, planner, onOpen }: { week: GeneratedTrainingWeek
 function WeekDetail({ week, planner, onAssign }: { week: GeneratedTrainingWeek; planner: PlannerState; onAssign: (id: string, date: string) => void }) {
   const longRun = findLongRun(week);
   const quality = findQuality(week);
+  const workouts = [...week.foundationWorkouts, ...week.optionalWorkouts];
+  const suggestedPlanner = { assignments: Object.fromEntries(workouts.map((workout) => [workout.id, suggestedDateForWorkout(week, workout)])), extraWorkouts: [] };
+  const hasUserChanges = workouts.some((workout) => (planner.assignments[workout.id] ?? suggestedDateForWorkout(week, workout)) !== suggestedDateForWorkout(week, workout)) || (planner.extraWorkouts ?? []).some((workout) => workout.weekNumber === week.weekNumber);
   return <CardStack>
     <PanelSection title="Week at a glance"><div style={highlightGridStyle}><Highlight label="Target" value={`${week.targetDistanceRangeKm.min}–${week.targetDistanceRangeKm.max} km`} /><Highlight label="Time" value={`${formatMinutes(week.targetDurationRangeMin.min)}–${formatMinutes(week.targetDurationRangeMin.max)}`} /><Highlight label="Foundation" value={`${week.foundationWorkouts.length} workouts`} /><Highlight label="Optional" value={`${week.optionalWorkouts.length} workouts`} /></div></PanelSection>
     <PanelSection title="Focus this week"><p style={{ ...typography.small, color: colors.neutral.text, margin: 0 }}>{week.coachingMessage}</p></PanelSection>
-    <PanelSection title="Suggested week"><SampleWeek workouts={[...week.foundationWorkouts, ...week.optionalWorkouts]} week={week} planner={planner} compact /></PanelSection>
-    <PanelSection title="Current planned week"><SampleWeek workouts={[...week.foundationWorkouts, ...week.optionalWorkouts]} week={week} planner={planner} compact /></PanelSection>
-    <PanelSection title="Edit future week"><div style={{ display: 'grid', gap: spacing.sm }}>{[...week.foundationWorkouts, ...week.optionalWorkouts].map((workout) => <div key={workout.id} style={workoutPillStyle}><strong>{workout.type === 'race' ? '🏁 ' : ''}{workout.title}</strong><select value={planner.assignments[workout.id] ?? ''} onChange={(event) => onAssign(workout.id, event.currentTarget.value)} style={{ ...typography.small, minHeight: 44, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, background: colors.neutral.surface }}>{weekDays.map((day, index) => { const date = isoAdd(week.startsOn, index); return <option key={date} value={date}>{day} — {formatDate(date)}</option>; })}</select></div>)}</div></PanelSection>
+    {hasUserChanges ? <PanelSection title="Current planned week"><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Adjusted from suggestion.</p><SampleWeek workouts={workouts} week={week} planner={planner} compact /></PanelSection> : <PanelSection title="Suggested week"><SampleWeek workouts={workouts} week={week} planner={suggestedPlanner} compact /></PanelSection>}
+    <PanelSection title="Edit future week"><div style={{ display: 'grid', gap: spacing.sm }}>{workouts.map((workout) => <div key={workout.id} style={workoutPillStyle}><strong>{workout.type === 'race' ? '🏁 ' : ''}{workout.title}</strong><select value={planner.assignments[workout.id] ?? suggestedDateForWorkout(week, workout)} onChange={(event) => onAssign(workout.id, event.currentTarget.value)} style={{ ...typography.small, minHeight: 44, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, background: colors.neutral.surface }}>{weekDays.map((day, index) => { const date = isoAdd(week.startsOn, index); return <option key={date} value={date}>{day} — {formatDate(date)}</option>; })}</select></div>)}</div></PanelSection>
     <WorkoutPanelSection title="Foundation workouts" workouts={week.foundationWorkouts} />
     <WorkoutPanelSection title="Optional workouts" workouts={week.optionalWorkouts} />
     <WorkoutPanelSection title="Long run" workouts={longRun ? [longRun] : []} />

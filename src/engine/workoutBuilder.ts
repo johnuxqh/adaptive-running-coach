@@ -1,3 +1,4 @@
+import { raceDistanceKm } from './targets';
 import type { GeneratedWorkout, PlanGeneratorMilestoneRace, RaceType, TrainingPhase, WeekType } from './planTypes';
 
 const EASY_PACE_MIN_PER_KM = 6.5;
@@ -95,11 +96,11 @@ function quality(input: { weekNumber: number; phase: TrainingPhase; weeklyKm: nu
 }
 
 function milestoneWorkout(input: { weekNumber: number }, race: PlanGeneratorMilestoneRace): Omit<GeneratedWorkout, 'status' | 'weekNumber' | 'id'> {
-  return { title: `${race.name} milestone race`, type: 'race', category: 'foundation', intensity: 'Race effort, controlled', purpose: 'Use the milestone as a supported long-run or quality substitute.', warmup: 'Jog easily and add a few relaxed strides.', mainSet: `Run the ${race.distance} milestone with discipline; do not chase extra fitness afterward.`, cooldown: 'Walk, refuel, and keep the next day very easy.', coachTip: 'This replaces—not adds to—the weekly key session.', suggestedDay: 'Sunday', warningIds: [`milestone_race_week_${input.weekNumber}`] };
+  return { title: `${race.name} milestone race`, type: 'race', category: 'foundation', plannedDistanceKm: raceDistanceKm[race.distance], plannedDurationMin: minutes(raceDistanceKm[race.distance]), intensity: 'Race effort, controlled', purpose: 'Use the milestone as a supported long-run or quality substitute.', warmup: 'Jog easily and add a few relaxed strides.', mainSet: `Run the ${race.distance} milestone with discipline; do not chase extra fitness afterward.`, cooldown: 'Walk, refuel, and keep the next day very easy.', coachTip: 'This replaces—not adds to—the weekly key session.', suggestedDay: 'Sunday', warningIds: [`milestone_race_week_${input.weekNumber}`] };
 }
 
 function raceWorkout(input: { race: RaceType; raceDate: string }): Omit<GeneratedWorkout, 'status' | 'weekNumber' | 'id'> {
-  return { title: `${input.race} Race Day`, type: 'race', category: 'foundation', intensity: 'Race effort', purpose: 'Execute the goal race fresh and confident.', warmup: 'Use your familiar pre-race warmup.', mainSet: 'Race calmly from the start and build only when settled.', cooldown: 'Walk, hydrate, and celebrate the work.', coachTip: 'Trust the work. Nothing new on race day.', suggestedDay: input.raceDate };
+  return { title: `${input.race} Race Day`, type: 'race', category: 'foundation', plannedDistanceKm: raceDistanceKm[input.race], plannedDurationMin: minutes(raceDistanceKm[input.race]), intensity: 'Race effort', purpose: 'Execute the goal race fresh and confident.', warmup: 'Use your familiar pre-race warmup.', mainSet: 'Race calmly from the start and build only when settled.', cooldown: 'Walk, hydrate, and celebrate the work.', coachTip: 'Trust the work. Nothing new on race day.', suggestedDay: input.raceDate };
 }
 
 function shakeout(title: string, day: string): Omit<GeneratedWorkout, 'status' | 'weekNumber' | 'id'> { return { title, type: 'shakeout', category: 'optional', plannedDurationMin: 20, intensity: 'Very easy', purpose: 'Loosen up without adding fatigue.', warmup: 'Walk first if stiff.', mainSet: 'Jog very easily.', cooldown: 'Stop while you feel fresh.', coachTip: 'Optional means optional.', suggestedDay: day }; }
