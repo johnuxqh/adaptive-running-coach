@@ -21,6 +21,14 @@ The app uses `HashRouter` so client-side routes remain safe on GitHub Pages refr
 https://johnuxqh.github.io/adaptive-running-coach/#/settings
 ```
 
+
+## GitHub Pages deployment workflow
+
+- GitHub Pages must use **Source: GitHub Actions** in the repository Pages settings.
+- The deploy workflow is **Deploy GitHub Pages**.
+- The workflow builds the Vite app and deploys the `dist` folder, not the repository root.
+- If the live site requests `/src/main.tsx`, the wrong thing is being served.
+
 ## How to verify deployment
 
 1. Install dependencies with `npm ci`.
