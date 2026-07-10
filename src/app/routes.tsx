@@ -11,6 +11,7 @@ import { WorkoutDetailPage } from '../pages/WorkoutDetailPage';
 import { CompleteWorkoutPage } from '../pages/CompleteWorkoutPage';
 import { SettingsExportPage } from '../pages/SettingsExportPage';
 import { DesignSystemPage } from '../pages/DesignSystemPage';
+import { PlanReviewPage } from '../pages/PlanReviewPage';
 function DefaultRoute() {
   const hasProfile = readStorageValue(storageKeys.profile, null) !== null;
   const hasPlan = readStorageValue(storageKeys.plan, null) !== null;
@@ -25,6 +26,7 @@ export function AppRoutes() {
         <Route path="welcome" element={<WelcomePage />} />
         <Route path="onboarding" element={<OnboardingPage />} />
         <Route path="plan-summary" element={<PlanSummaryPage />} />
+        <Route path="plan-review" element={<PlanReviewPage />} />
         <Route path="today" element={<TodayPage />} />
         <Route path="week" element={<WeekPlannerPage />} />
         <Route path="workout/:id" element={<WorkoutDetailPage />} />

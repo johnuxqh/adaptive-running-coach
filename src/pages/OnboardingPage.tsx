@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CardStack, HeroTitle, PrimaryButton, ProgressBar, SecondaryButton, SectionCard, TextInput } from '../components/ui';
 import { colors, radius, spacing, typography } from '../design';
@@ -24,7 +24,7 @@ const goalOptions: Array<{ label: string; value: GoalType }> = [
 
 const runsPerWeekOptions: PlanGeneratorInput['runsPerWeek'][] = [3, 4, 5, 6];
 const totalSteps = 9;
-const inputStyle = { ...typography.body, width: '100%', boxSizing: 'border-box' as const, minHeight: 56, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, padding: spacing.md, color: colors.neutral.text, background: colors.neutral.surface };
+const inputStyle = { ...typography.body, display: 'block', width: '100%', maxWidth: '100%', boxSizing: 'border-box' as const, minWidth: 0, minHeight: 56, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, padding: spacing.md, color: colors.neutral.text, background: colors.neutral.surface };
 const fieldLabelStyle = { ...typography.caption, color: colors.neutral.muted, margin: 0, textTransform: 'uppercase' as const };
 const errorStyle = { ...typography.small, color: colors.accent.red, margin: 0 };
 
@@ -143,7 +143,7 @@ export function OnboardingPage() {
         <ProgressBar value={progress} />
         {renderStep({ step, form, updateForm, addMilestone, error, nextStep })}
         {error ? <p style={errorStyle}>{error}</p> : null}
-        {step < totalSteps - 1 ? <PrimaryButton onClick={nextStep}>Next</PrimaryButton> : <PrimaryButton onClick={finishOnboarding}>Let&apos;s Get Fit</PrimaryButton>}
+        {step === 7 ? null : step < totalSteps - 1 ? <PrimaryButton onClick={nextStep}>Next</PrimaryButton> : <PrimaryButton onClick={finishOnboarding}>Let&apos;s Get Fit</PrimaryButton>}
       </CardStack>
     </SectionCard>
   );
@@ -157,12 +157,28 @@ function renderStep({ step, form, updateForm, addMilestone, error, nextStep }: {
   if (step === 4) return <SliderStep eyebrow="Question 5 of 8" title="How many kilometres do you currently run each week?" value={form.currentWeeklyKm} min={5} max={120} unit="km" onChange={(value) => updateForm({ currentWeeklyKm: value })} />;
   if (step === 5) return <SliderStep eyebrow="Question 6 of 8" title="What is the longest run you've completed in the last four weeks?" value={form.longestRunKm} min={3} max={40} unit="km" onChange={(value) => updateForm({ longestRunKm: value })} />;
   if (step === 6) return <ChoiceStep eyebrow="Question 7 of 8" title="Realistically..." body="How many days each week can you run?" options={runsPerWeekOptions.map((value) => ({ label: String(value), value }))} selected={form.runsPerWeek} onSelect={(value) => updateForm({ runsPerWeek: value })} />;
-  if (step === 7) return <><HeroTitle eyebrow="Question 8 of 8" title="Do you have any milestone races before your goal race?">Optional. Add one if it matters, or tap Done.</HeroTitle><label style={fieldLabelStyle}>Distance</label><select value={form.milestoneDistance} onChange={(event) => updateForm({ milestoneDistance: event.currentTarget.value as RaceType })} style={inputStyle}>{raceOptions.map((race) => <option key={race.value} value={race.value}>{race.label}</option>)}</select><label style={fieldLabelStyle}>Date</label><input aria-label="Milestone race date" type="date" value={form.milestoneDate} onChange={(event) => updateForm({ milestoneDate: event.currentTarget.value })} style={inputStyle} /><SecondaryButton onClick={addMilestone}>Add milestone race</SecondaryButton>{form.milestones.map((race) => <p key={race.id} style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{race.name} · {race.date}</p>)}<PrimaryButton onClick={nextStep}>Done</PrimaryButton>{error ? null : null}</>;
+  if (step === 7) return <><HeroTitle eyebrow="Question 8 of 8" title="Do you have any milestone races before your goal race?">Optional. Add one if it matters, or continue without one.</HeroTitle><label style={fieldLabelStyle}>Distance</label><select value={form.milestoneDistance} onChange={(event) => updateForm({ milestoneDistance: event.currentTarget.value as RaceType })} style={inputStyle}>{raceOptions.map((race) => <option key={race.value} value={race.value}>{race.label}</option>)}</select><label style={fieldLabelStyle}>Date</label><input aria-label="Milestone race date" type="date" value={form.milestoneDate} onChange={(event) => updateForm({ milestoneDate: event.currentTarget.value })} style={inputStyle} /><PrimaryButton onClick={addMilestone}>Add Milestone</PrimaryButton>{form.milestones.map((race) => <p key={race.id} style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{race.name} · {race.date}</p>)}<SecondaryButton onClick={nextStep}>{form.milestones.length ? 'Done' : 'Skip'}</SecondaryButton><PrimaryButton onClick={nextStep}>Continue</PrimaryButton>{error ? null : null}</>;
   return <HeroTitle title="Perfect.">I&apos;ve got everything I need.<br />I&apos;ll build your personalised plan using evidence-based coaching principles.</HeroTitle>;
 }
 
 function ChoiceStep<T extends string | number>({ eyebrow, title, body, options, selected, onSelect }: { eyebrow: string; title: string; body?: string; options: Array<{ label: string; value: T }>; selected?: T; onSelect: (value: T) => void }) {
-  return <><HeroTitle eyebrow={eyebrow} title={title}>{body}</HeroTitle>{options.map((option) => selected === option.value ? <PrimaryButton key={option.label} onClick={() => onSelect(option.value)}>{option.label}</PrimaryButton> : <SecondaryButton key={option.label} onClick={() => onSelect(option.value)}>{option.label}</SecondaryButton>)}</>;
+  return <><HeroTitle eyebrow={eyebrow} title={title}>{body}</HeroTitle>{options.map((option) => <OptionButton key={option.label} selected={selected === option.value} onClick={() => onSelect(option.value)}>{option.label}</OptionButton>)}</>;
+}
+
+function OptionButton({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: ReactNode }) {
+  return <button onClick={onClick} type="button" aria-pressed={selected} style={{
+    ...typography.button,
+    width: '100%',
+    minHeight: 56,
+    borderRadius: radius.button,
+    padding: spacing.md,
+    cursor: 'pointer',
+    textAlign: 'left',
+    border: selected ? `2px solid ${colors.primary.green}` : `1px solid ${colors.neutral.border}`,
+    background: selected ? colors.primary.greenTint : colors.neutral.surface,
+    color: colors.neutral.text,
+    boxShadow: selected ? `0 0 0 3px ${colors.neutral.surface}` : 'none',
+  }}><span style={{ display: 'flex', justifyContent: 'space-between', gap: spacing.md, alignItems: 'center' }}><span>{children}</span>{selected ? <span aria-hidden="true" style={{ color: colors.primary.green }}>✓</span> : null}</span></button>;
 }
 
 function SliderStep({ eyebrow, title, value, min, max, unit, onChange }: { eyebrow: string; title: string; value: number; min: number; max: number; unit: string; onChange: (value: number) => void }) {
