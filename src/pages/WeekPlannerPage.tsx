@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, ProgressBar, SecondaryButton, SectionCard, StatusChip, TextInput } from '../components/ui';
+import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, ProgressBar, SecondaryButton, SectionCard, SlidePanel, StatusChip, TextInput } from '../components/ui';
 import { colors, radius, spacing, typography } from '../design';
 import { addDays, parseIsoDate, toIsoDate } from '../engine/dateHelpers';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, GeneratedWorkoutType, TrainingPhase, WeekType } from '../engine/planTypes';
@@ -10,7 +10,7 @@ const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const plannerKey = storageKeys.weeklyPlanner;
 type PlannerCategory = 'foundation' | 'optional' | 'extra';
 type PlannerState = { assignments: Record<string, string>; extraWorkouts: GeneratedWorkout[] };
-type PickerMode = { title: string; workoutId: string } | { title: string; date: string } | null;
+type PanelMode = { kind: 'remaining' } | { kind: 'chooseForDay'; date: string } | { kind: 'day'; date: string } | { kind: 'assignWorkout'; workoutId: string } | { kind: 'moveWorkout'; workoutId: string } | null;
 const emptyPlanner: PlannerState = { assignments: {}, extraWorkouts: [] };
 
 const extraTypes: { label: string; type: GeneratedWorkoutType }[] = [
@@ -30,7 +30,7 @@ export function WeekPlannerPage() {
   const storedWeek = readStorageValue<GeneratedTrainingWeek | null>(storageKeys.currentWeek, null);
   const currentWeek = storedWeek ?? plan?.weeks[0] ?? null;
   const [planner, setPlanner] = useState<PlannerState>(() => readPlanner());
-  const [picker, setPicker] = useState<PickerMode>(null);
+  const [panel, setPanel] = useState<PanelMode>(null);
   const [extraTitle, setExtraTitle] = useState('');
   const [extraTypeLabel, setExtraTypeLabel] = useState(extraTypes[0].label);
   const [extraCategory, setExtraCategory] = useState<PlannerCategory>('extra');
@@ -49,7 +49,7 @@ export function WeekPlannerPage() {
     savePlanner({ ...planner, assignments: { ...planner.assignments, [workoutId]: date } });
     const dayName = days.find((day) => day.date === date)?.name ?? 'that day';
     setFeedback(`Workout planned for ${dayName}.`);
-    setPicker(null);
+    setPanel(null);
   }
   function remove(workoutId: string) { const { [workoutId]: _removed, ...assignments } = planner.assignments; savePlanner({ ...planner, assignments }); setFeedback('Workout returned to Remaining Workouts.'); }
   function addExtraWorkout() {
@@ -80,23 +80,37 @@ export function WeekPlannerPage() {
   const foundationDone = currentWeek.foundationWorkouts.filter((workout) => planner.assignments[workout.id]).length;
   const optionalDone = currentWeek.optionalWorkouts.filter((workout) => planner.assignments[workout.id]).length;
 
+  const activeDay = panel && ('date' in panel) ? assignedByDay.find((day) => day.date === panel.date) : null;
+  const activeWorkout = panel && ('workoutId' in panel) ? workouts.find((workout) => workout.id === panel.workoutId) : null;
+
   return <PageStack>
-    <HeroTitle eyebrow="Weekly planner" title={`Week ${currentWeek.weekNumber}`}>{formatPhase(currentWeek.phase)} • {formatWeekType(currentWeek.weekType)}</HeroTitle>
+    <HeroTitle eyebrow="Week planner" title="This Week">Week {currentWeek.weekNumber} • {formatPhase(currentWeek.phase)} • {formatWeekType(currentWeek.weekType)}</HeroTitle>
     <PrimaryButton onClick={() => navigate('/plan-review')}>View Full Plan</PrimaryButton>
     <SectionCard><CardStack>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: spacing.md }}><div><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>TARGET</p><h3 style={{ ...typography.h2, margin: `${spacing.xs}px 0 0` }}>{currentWeek.targetDistanceRangeKm.min}–{currentWeek.targetDistanceRangeKm.max} km</h3></div><div style={{ textAlign: 'right' }}><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>TIME</p><h3 style={{ ...typography.h2, margin: `${spacing.xs}px 0 0` }}>{currentWeek.targetDurationRangeMin.min}–{currentWeek.targetDurationRangeMin.max} min</h3></div></div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: spacing.md }}>
+        <Stat label="Week" value={`${currentWeek.weekNumber}`} />
+        <Stat label="Phase" value={formatPhase(currentWeek.phase)} />
+        <Stat label="Type" value={formatWeekType(currentWeek.weekType)} />
+        <Stat label="Target" value={`${currentWeek.targetDistanceRangeKm.min}–${currentWeek.targetDistanceRangeKm.max} km`} detail={`${currentWeek.targetDurationRangeMin.min}–${currentWeek.targetDurationRangeMin.max} min`} />
+      </div>
       <ProgressRow label="Foundation" value={foundationDone} total={currentWeek.foundationWorkouts.length} />
       <ProgressRow label="Optional" value={optionalDone} total={currentWeek.optionalWorkouts.length} />
       <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{currentWeek.coachingMessage}</p>
     </CardStack></SectionCard>
-    <WeekSnapshot days={assignedByDay} unplannedCount={remaining.length} foundationDone={foundationDone} foundationTotal={currentWeek.foundationWorkouts.length} optionalDone={optionalDone} optionalTotal={currentWeek.optionalWorkouts.length} />
     {feedback ? <InfoBanner>{feedback}</InfoBanner> : null}
-    {today && today.workouts.length === 0 ? <InfoBanner>No workout planned today. <button onClick={() => setPicker({ date: today.date, title: "Choose Today's Workout" })} style={linkButton}>Choose Today's Workout</button></InfoBanner> : null}
+    {today && today.workouts.length === 0 ? <InfoBanner>No workout planned today. <button onClick={() => setPanel({ kind: 'chooseForDay', date: today.date })} style={linkButton}>Choose Today&apos;s Workout</button></InfoBanner> : null}
     {warnings.map((warning) => <WarningRibbon key={warning}>{warning}</WarningRibbon>)}
-    <CardStack>{assignedByDay.map((day) => <DayCard key={day.date} day={day} onAssign={() => setPicker({ date: day.date, title: `Assign to ${day.name}` })} onMove={(workout) => setPicker({ workoutId: workout.id, title: `Move ${workout.title}` })} onRemove={remove} />)}</CardStack>
-    <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Remaining Workouts</h3>{(['foundation','optional','extra'] as PlannerCategory[]).map((category) => <WorkoutGroup key={category} category={category} workouts={remaining.filter((workout) => workout.category === category)} onAssign={(workout) => setPicker({ workoutId: workout.id, title: `Assign ${workout.title}` })} />)}</CardStack></SectionCard>
-    <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Add workout</h3><TextInput value={extraTitle} onChange={(event) => setExtraTitle(event.target.value)} placeholder="Optional title" /><Select value={extraTypeLabel} onChange={setExtraTypeLabel} options={extraTypes.map((item) => item.label)} /><Select value={extraCategory} onChange={(value) => setExtraCategory(value as PlannerCategory)} options={['foundation','optional','extra']} /><PrimaryButton onClick={addExtraWorkout}>Add Workout</PrimaryButton></CardStack></SectionCard>
-    {picker ? <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>{picker.title}</h3>{'date' in picker ? (remaining.length ? remaining.map((workout) => <SecondaryButton key={workout.id} onClick={() => assign(workout.id, picker.date)}>{workout.title}</SecondaryButton>) : <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>No remaining workouts to assign.</p>) : days.map((day) => <SecondaryButton key={day.date} onClick={() => assign(picker.workoutId, day.date)}>{day.name} • {formatDate(day.date)}</SecondaryButton>)}<SecondaryButton onClick={() => setPicker(null)}>Cancel</SecondaryButton></CardStack></SectionCard> : null}
+    <WeekSnapshot days={assignedByDay} onDayTap={(day) => setPanel({ kind: day.workouts.length ? 'day' : 'chooseForDay', date: day.date })} />
+    <button type="button" onClick={() => setPanel({ kind: 'remaining' })} style={remainingButtonStyle}>
+      <span><strong>Remaining Workouts</strong><small>{remaining.length} workout{remaining.length === 1 ? '' : 's'} waiting</small></span>
+      <span aria-hidden="true">→</span>
+    </button>
+    <SlidePanel isOpen={Boolean(panel)} title={panelTitle(panel, activeDay, activeWorkout)} subtitle={panelSubtitle(panel, activeDay)} onClose={() => setPanel(null)}>
+      {panel?.kind === 'remaining' ? <RemainingPanel remaining={remaining} onAssign={(workout) => setPanel({ kind: 'assignWorkout', workoutId: workout.id })} extraTitle={extraTitle} setExtraTitle={setExtraTitle} extraTypeLabel={extraTypeLabel} setExtraTypeLabel={setExtraTypeLabel} extraCategory={extraCategory} setExtraCategory={setExtraCategory} onAdd={addExtraWorkout} /> : null}
+      {panel?.kind === 'chooseForDay' && activeDay ? <ChooseForDayPanel day={activeDay} remaining={remaining} onAssign={(workout) => assign(workout.id, activeDay.date)} onOpenRemaining={() => setPanel({ kind: 'remaining' })} /> : null}
+      {panel?.kind === 'day' && activeDay ? <PlannedDayPanel day={activeDay} onView={(workout) => navigate(`/workout/${workout.id}`)} onMove={(workout) => setPanel({ kind: 'moveWorkout', workoutId: workout.id })} onRemove={remove} /> : null}
+      {(panel?.kind === 'assignWorkout' || panel?.kind === 'moveWorkout') && activeWorkout ? <DayPickerPanel workout={activeWorkout} days={days} onAssign={(date) => assign(activeWorkout.id, date)} /> : null}
+    </SlidePanel>
   </PageStack>;
 }
 
@@ -108,27 +122,31 @@ function workoutTone(workout: GeneratedWorkout) { if (workout.type === 'quality_
 function hard(workout: GeneratedWorkout) { return workout.type === 'quality_session' || workout.type === 'long_run' || workout.intensity.toLowerCase().includes('hard'); }
 function buildWarnings(days: { workouts: GeneratedWorkout[] }[]) { const warnings: string[] = []; const hardDays = days.filter((day) => day.workouts.some(hard)).length; days.forEach((day, index) => { const today = day.workouts; const previous = days[index - 1]?.workouts ?? []; if (today.some((w) => w.type === 'quality_session') && previous.some((w) => w.type === 'quality_session')) warnings.push('Gentle note: threshold-style sessions on back-to-back days can feel spicy.'); if (today.some((w) => w.type === 'long_run') && previous.some((w) => w.type === 'quality_session')) warnings.push('Friendly reminder: a long run after threshold may need extra recovery.'); }); if (hardDays >= 3) warnings.push('This week now has three hard days. Keep the easy days truly easy.'); return [...new Set(warnings)]; }
 
-function WeekSnapshot({ days, unplannedCount, foundationDone, foundationTotal, optionalDone, optionalTotal }: { days: Array<{ name: string; date: string; workouts: GeneratedWorkout[] }>; unplannedCount: number; foundationDone: number; foundationTotal: number; optionalDone: number; optionalTotal: number }) {
+function WeekSnapshot({ days, onDayTap }: { days: Array<{ name: string; date: string; workouts: GeneratedWorkout[] }>; onDayTap: (day: { name: string; date: string; workouts: GeneratedWorkout[] }) => void }) {
   return <SectionCard><CardStack>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.md }}>
-      <div><h3 style={{ ...typography.h3, margin: 0 }}>Week Snapshot</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{unplannedCount} unplanned workout{unplannedCount === 1 ? '' : 's'}</p></div>
-      <div style={{ textAlign: 'right' }}><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Foundation {foundationDone}/{foundationTotal}</p><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>Optional {optionalDone}/{optionalTotal}</p></div>
-    </div>
+    <h3 style={{ ...typography.h3, margin: 0 }}>Monday–Sunday</h3>
     <div style={{ display: 'grid', gap: spacing.sm }}>
-      {days.map((day) => <div key={day.date} style={{ display: 'grid', gridTemplateColumns: '84px minmax(0, 1fr)', gap: spacing.sm, alignItems: 'start' }}>
-        <p style={{ ...typography.caption, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{day.name.slice(0, 3)}</p>
-        <div style={{ display: 'flex', gap: spacing.xs, flexWrap: 'wrap', minWidth: 0 }}>
-          {day.workouts.length ? day.workouts.map((workout) => <Chip key={workout.id} tone={workoutTone(workout)}>{workout.title}</Chip>) : <span style={{ ...typography.small, color: colors.neutral.muted }}>Open</span>}
-        </div>
-      </div>)}
+      {days.map((day) => <button key={day.date} type="button" onClick={() => onDayTap(day)} style={dayButtonStyle}>
+        <div style={{ minWidth: 0 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: spacing.sm }}><strong>{day.name}</strong><span style={{ ...typography.small, color: colors.neutral.muted }}>{formatDate(day.date)}</span></div>
+          <div style={{ display: 'flex', gap: spacing.xs, flexWrap: 'wrap', marginTop: spacing.xs }}>{day.workouts.length ? day.workouts.map((workout) => <Chip key={workout.id} tone={workoutTone(workout)}>{workout.title}</Chip>) : <span style={{ ...typography.small, color: colors.neutral.muted }}>Open</span>}</div></div>
+        <StatusChip tone={day.workouts.some((workout) => workout.status === 'completed') ? 'completed' : day.workouts.length ? 'moved' : 'notPlanned'} />
+      </button>)}
     </div>
   </CardStack></SectionCard>;
 }
-
+function Stat({ label, value, detail }: { label: string; value: string; detail?: string }) { return <div><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>{label}</p><h3 style={{ ...typography.h3, margin: `${spacing.xs}px 0 0` }}>{value}</h3>{detail ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{detail}</p> : null}</div>; }
+function panelTitle(panel: PanelMode, day?: { name: string } | null, workout?: GeneratedWorkout | null) { if (!panel) return ''; if (panel.kind === 'remaining') return 'Remaining Workouts'; if (panel.kind === 'chooseForDay' || panel.kind === 'day') return day?.name ?? 'Day'; return panel.kind === 'moveWorkout' ? `Move ${workout?.title ?? 'Workout'}` : `Assign ${workout?.title ?? 'Workout'}`; }
+function panelSubtitle(panel: PanelMode, day?: { workouts: GeneratedWorkout[] } | null) { if (panel?.kind === 'chooseForDay') return 'Choose a workout for this day'; if (panel?.kind === 'day') return day?.workouts.length ? 'Planned workouts' : 'Open'; return undefined; }
 function ProgressRow({ label, value, total }: { label: string; value: number; total: number }) { return <div><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: spacing.xs }}><span style={typography.small}>{label}</span><span style={{ ...typography.small, color: colors.neutral.muted }}>{value} / {total}</span></div><ProgressBar value={total ? (value / total) * 100 : 0} /></div>; }
 function WarningRibbon({ children }: { children: string }) { return <div style={{ ...typography.small, color: colors.accent.amber, background: colors.accent.amberTint, border: `1px solid ${colors.accent.amber}`, borderRadius: radius.card, padding: spacing.md }}>{children}</div>; }
-function WorkoutMini({ workout, children }: { workout: GeneratedWorkout; children: React.ReactNode }) { return <div style={{ border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.md, background: colors.neutral.surface }}><CardStack><div><Chip tone={workoutTone(workout)}>{workout.category} • {workout.type.replace('_', ' ')}</Chip><h4 style={{ ...typography.h3, margin: `${spacing.xs}px 0 0` }}>{workout.title}</h4><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{[workout.plannedDurationMin && `${workout.plannedDurationMin} min`, workout.plannedDistanceKm && `${workout.plannedDistanceKm} km`].filter(Boolean).join(' • ') || 'Flexible'} • {workout.purpose}</p></div>{children}</CardStack></div>; }
-function DayCard({ day, onAssign, onMove, onRemove }: { day: { name: string; date: string; workouts: GeneratedWorkout[] }; onAssign: () => void; onMove: (workout: GeneratedWorkout) => void; onRemove: (id: string) => void }) { return <SectionCard><CardStack><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md }}><div><h3 style={{ ...typography.h3, margin: 0 }}>{day.name}</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{formatDate(day.date)}</p></div><StatusChip tone={day.workouts.length ? 'moved' : 'notPlanned'} /></div>{day.workouts.length ? day.workouts.map((workout) => <WorkoutMini key={workout.id} workout={workout}><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: spacing.sm }}><SecondaryButton onClick={() => onMove(workout)}>Move</SecondaryButton><SecondaryButton onClick={() => onRemove(workout.id)}>Remove</SecondaryButton></div></WorkoutMini>) : <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>No workout here yet. Tap below to fit one in.</p>}<SecondaryButton onClick={onAssign}>Assign workout</SecondaryButton></CardStack></SectionCard>; }
-function WorkoutGroup({ category, workouts, onAssign }: { category: PlannerCategory; workouts: GeneratedWorkout[]; onAssign: (workout: GeneratedWorkout) => void }) { return <CardStack><h4 style={{ ...typography.h3, margin: 0 }}>{category[0].toUpperCase() + category.slice(1)}</h4>{workouts.length ? workouts.map((workout) => <WorkoutMini key={workout.id} workout={workout}><PrimaryButton onClick={() => onAssign(workout)}>Assign</PrimaryButton></WorkoutMini>) : <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Nothing waiting here.</p>}</CardStack>; }
+function WorkoutMini({ workout, children, onClick }: { workout: GeneratedWorkout; children?: React.ReactNode; onClick?: () => void }) { const content = <CardStack><div><Chip tone={workoutTone(workout)}>{workout.category} • {workout.type.replace('_', ' ')}</Chip><h4 style={{ ...typography.h3, margin: `${spacing.xs}px 0 0` }}>{workout.title}</h4><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{[workout.plannedDurationMin && `${workout.plannedDurationMin} min`, workout.plannedDistanceKm && `${workout.plannedDistanceKm} km`].filter(Boolean).join(' • ') || 'Flexible'} • {workout.purpose}</p></div>{children}</CardStack>; return onClick ? <div role="button" tabIndex={0} onClick={onClick} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onClick(); }} style={workoutButtonStyle}>{content}</div> : <div style={workoutCardStyle}>{content}</div>; }
+function ChooseForDayPanel({ day, remaining, onAssign, onOpenRemaining }: { day: { date: string; workouts: GeneratedWorkout[] }; remaining: GeneratedWorkout[]; onAssign: (workout: GeneratedWorkout) => void; onOpenRemaining: () => void }) { return <CardStack>{remaining.length ? remaining.map((workout) => <WorkoutMini key={workout.id} workout={workout} onClick={() => onAssign(workout)} />) : <><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>All workouts are already planned.</p><PrimaryButton onClick={onOpenRemaining}>Open Remaining Workouts</PrimaryButton></>}</CardStack>; }
+function PlannedDayPanel({ day, onView, onMove, onRemove }: { day: { workouts: GeneratedWorkout[] }; onView: (workout: GeneratedWorkout) => void; onMove: (workout: GeneratedWorkout) => void; onRemove: (id: string) => void }) { return <CardStack>{day.workouts.map((workout) => <WorkoutMini key={workout.id} workout={workout}><div style={{ display: 'grid', gap: spacing.sm }}><PrimaryButton onClick={() => onView(workout)}>View Details</PrimaryButton><SecondaryButton onClick={() => onMove(workout)}>Move</SecondaryButton><SecondaryButton onClick={() => onRemove(workout.id)}>Remove</SecondaryButton></div></WorkoutMini>)}</CardStack>; }
+function RemainingPanel(props: { remaining: GeneratedWorkout[]; onAssign: (workout: GeneratedWorkout) => void; extraTitle: string; setExtraTitle: (value: string) => void; extraTypeLabel: string; setExtraTypeLabel: (value: string) => void; extraCategory: PlannerCategory; setExtraCategory: (value: PlannerCategory) => void; onAdd: () => void }) { const [formOpen, setFormOpen] = useState(false); return <CardStack>{(['foundation','optional','extra'] as PlannerCategory[]).map((category) => <CardStack key={category}><h4 style={{ ...typography.h3, margin: 0 }}>{category[0].toUpperCase() + category.slice(1)}</h4>{props.remaining.filter((workout) => workout.category === category).length ? props.remaining.filter((workout) => workout.category === category).map((workout) => <WorkoutMini key={workout.id} workout={workout} onClick={() => props.onAssign(workout)}><PrimaryButton onClick={() => props.onAssign(workout)}>Assign</PrimaryButton></WorkoutMini>) : <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Nothing waiting here.</p>}</CardStack>)}<SecondaryButton onClick={() => setFormOpen(!formOpen)}>+ Add Workout</SecondaryButton>{formOpen ? <CardStack><TextInput value={props.extraTitle} onChange={(event) => props.setExtraTitle(event.target.value)} placeholder="Title" /><Select value={props.extraTypeLabel} onChange={props.setExtraTypeLabel} options={extraTypes.map((item) => item.label)} /><Select value={props.extraCategory} onChange={(value) => props.setExtraCategory(value as PlannerCategory)} options={['foundation','optional','extra']} /><PrimaryButton onClick={props.onAdd}>Save Workout</PrimaryButton></CardStack> : null}</CardStack>; }
+function DayPickerPanel({ workout, days, onAssign }: { workout: GeneratedWorkout; days: Array<{ name: string; date: string }>; onAssign: (date: string) => void }) { return <CardStack><WorkoutMini workout={workout} />{days.map((day) => <SecondaryButton key={day.date} onClick={() => onAssign(day.date)}>{day.name} • {formatDate(day.date)}</SecondaryButton>)}</CardStack>; }
 function Select({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: string[] }) { return <select value={value} onChange={(event) => onChange(event.target.value)} style={{ ...typography.body, minHeight: 56, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, padding: spacing.md, background: colors.neutral.surface, color: colors.neutral.text }}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select>; }
+const dayButtonStyle = { ...typography.body, width: '100%', textAlign: 'left' as const, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: spacing.sm, alignItems: 'center', border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.md, background: colors.neutral.surface, color: colors.neutral.text, cursor: 'pointer' } as const;
+const workoutCardStyle = { border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.md, background: colors.neutral.surface } as const;
+const workoutButtonStyle = { ...workoutCardStyle, width: '100%', textAlign: 'left' as const, color: colors.neutral.text, cursor: 'pointer' } as const;
+const remainingButtonStyle = { ...typography.body, display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.lg, background: colors.neutral.surface, color: colors.neutral.text, boxShadow: 'none', cursor: 'pointer' } as const;
 const linkButton = { ...typography.button, color: colors.accent.sky, background: 'transparent', border: 0, padding: 0, textDecoration: 'underline', cursor: 'pointer' };

@@ -15,6 +15,21 @@ export function Header() { return <header style={{ marginBottom: px(spacing.lg) 
 export function ScreenTitle({ eyebrow, title, children }: { eyebrow?: string; title: string; children?: ReactNode }) { return <div style={{ marginBottom: px(spacing.md) }}>{eyebrow ? <p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0, textTransform: 'uppercase' }}>{eyebrow}</p> : null}<h2 style={{ ...typography.h2, color: colors.neutral.text, margin: `${px(spacing.xs)} 0 0` }}>{title}</h2>{children ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: `${px(spacing.xs)} 0 0` }}>{children}</p> : null}</div>; }
 export function HeroTitle({ eyebrow, title, children }: { eyebrow?: string; title: string; children?: ReactNode }) { return <div style={{ ...stack(spacing.sm), marginBottom: px(spacing.lg) }}>{eyebrow ? <p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0, textTransform: 'uppercase' }}>{eyebrow}</p> : null}<h2 style={{ ...typography.display, color: colors.neutral.text, margin: 0 }}>{title}</h2>{children ? <p style={{ ...typography.body, color: colors.neutral.muted, margin: 0 }}>{children}</p> : null}</div>; }
 export function SectionCard({ children }: { children: ReactNode }) { return <section style={{ background: colors.neutral.surface, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, boxShadow: shadows.card, padding: px(spacing.lg) }}>{children}</section>; }
+
+export function SlidePanel({ isOpen, title, subtitle, children, onClose }: { isOpen: boolean; title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
+  return <div style={{ position: 'fixed', inset: 0, zIndex: 20, pointerEvents: isOpen ? 'auto' : 'none', overflow: 'hidden' }} aria-hidden={!isOpen}>
+    <button type="button" aria-label="Close panel" onClick={onClose} style={{ position: 'absolute', inset: 0, width: '100%', border: 0, background: isOpen ? 'rgba(47,42,36,0.18)' : 'rgba(47,42,36,0)', transition: `background ${theme.animation.page}` }} />
+    <aside role="dialog" aria-modal="true" aria-label={title} style={{ position: 'absolute', top: 0, right: 0, width: '85vw', maxWidth: px(Math.round(theme.layout.maxWidth * 0.85)), height: '100%', background: colors.neutral.surfaceWarm, borderTopLeftRadius: radius.card, borderBottomLeftRadius: radius.card, boxShadow: shadows.shell, transform: isOpen ? 'translateX(0)' : 'translateX(100%)', transition: `transform ${theme.animation.page}`, display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', overflow: 'hidden' }}>
+      <header style={{ padding: `${px(spacing.lg)} ${px(spacing.lg)} ${px(spacing.md)}`, borderBottom: `1px solid ${colors.neutral.border}`, background: colors.neutral.surface }}>
+        <button type="button" onClick={onClose} style={{ ...buttonBase, minHeight: px(44), width: 'auto', padding: `${px(spacing.sm)} ${px(spacing.md)}`, marginBottom: px(spacing.md), background: colors.neutral.surface, color: colors.neutral.text, border: `1px solid ${colors.neutral.border}`, boxShadow: 'none' }}>Close</button>
+        <h2 style={{ ...typography.h2, margin: 0 }}>{title}</h2>
+        {subtitle ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: `${px(spacing.xs)} 0 0` }}>{subtitle}</p> : null}
+      </header>
+      <div style={{ overflowY: 'auto', overflowX: 'hidden', padding: `${px(spacing.lg)} ${px(spacing.lg)} calc(env(safe-area-inset-bottom) + ${px(spacing.navBottom)})` }}>{children}</div>
+    </aside>
+  </div>;
+}
+
 export function PageStack({ children }: { children: ReactNode }) { return <div style={stack(spacing.lg)}>{children}</div>; }
 export function CardStack({ children }: { children: ReactNode }) { return <div style={stack(spacing.md)}>{children}</div>; }
 export function IllustrationPlaceholder({ children }: { children: ReactNode }) { return <div style={{ minHeight: px(180), borderRadius: radius.card, background: colors.primary.greenTint, border: `1px solid ${colors.neutral.border}`, display: 'grid', placeItems: 'center', color: colors.primary.green, ...typography.h1, textAlign: 'center', padding: px(spacing.xl) }}>{children}</div>; }
