@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:plans": "rm -rf .plan-test-build && tsc --ignoreConfig scripts/generate-plan-test-cases.ts src/engine/*.ts --target ES2022 --module commonjs --moduleResolution bundler --skipLibCheck --esModuleInterop --outDir .plan-test-build --noEmit false --noImplicitAny false && printf '{\"type\":\"commonjs\"}' > .plan-test-build/package.json && node .plan-test-build/scripts/generate-plan-test-cases.js && rm -rf .plan-test-build"
   },
   "dependencies": {
     "vite": "latest",
