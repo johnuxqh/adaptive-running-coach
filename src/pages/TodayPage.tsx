@@ -7,6 +7,7 @@ import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, Ge
 import type { AthleteProfile } from '../engine/types';
 import { seedMessages } from '../data/seedMessages';
 import { readStorageValue, storageKeys, writeStorageValue } from '../utils/storage';
+import { buildSuggestedPlanner, workoutsForWeek } from '../utils/planning';
 
 type PlannerState = { assignments: Record<string, string>; extraWorkouts: GeneratedWorkout[] };
 const emptyPlanner: PlannerState = { assignments: {}, extraWorkouts: [] };
@@ -17,17 +18,19 @@ export function TodayPage() {
   const profile = readStorageValue<AthleteProfile | null>(storageKeys.profile, null);
   const plan = readStorageValue<GeneratedTrainingPlan | null>(storageKeys.plan, null);
   const currentWeek = readStorageValue<GeneratedTrainingWeek | null>(storageKeys.currentWeek, null) ?? plan?.weeks[0] ?? null;
-  const [planner, setPlanner] = useState<PlannerState>(() => readStorageValue<PlannerState>(storageKeys.weeklyPlanner, emptyPlanner));
+  const [planner, setPlanner] = useState<PlannerState>(() => plan ? buildSuggestedPlanner(plan, readStorageValue<PlannerState>(storageKeys.weeklyPlanner, emptyPlanner)) : readStorageValue<PlannerState>(storageKeys.weeklyPlanner, emptyPlanner));
   const [message] = useState(() => seedMessages[Math.floor(Math.random() * seedMessages.length)]);
   const todayIso = toIsoDate(new Date());
 
-  const workouts = useMemo(() => currentWeek ? [...currentWeek.foundationWorkouts, ...currentWeek.optionalWorkouts, ...planner.extraWorkouts.filter((workout) => workout.weekNumber === currentWeek.weekNumber)] : [], [currentWeek, planner.extraWorkouts]);
+  const workouts = useMemo(() => currentWeek ? workoutsForWeek(currentWeek, planner) : [], [currentWeek, planner]);
   const todayWorkouts = workouts.filter((workout) => planner.assignments[workout.id] === todayIso);
   const todaysWorkout = todayWorkouts[0];
+  const raceToday = todayWorkouts.find((workout) => workout.type === 'race');
   const nextWorkout = findNextWorkout(workouts, planner.assignments, todayIso);
   const remaining = workouts.filter((workout) => !planner.assignments[workout.id] && workout.status !== 'completed');
   const [chooserOpen, setChooserOpen] = useState(false);
   const [panel, setPanel] = useState<'countdown' | 'complete' | 'details' | null>(null);
+  const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
   const [success, setSuccess] = useState('');
   const [completedIds, setCompletedIds] = useState<string[]>([]);
 
@@ -40,6 +43,7 @@ export function TodayPage() {
   const optionalDone = currentWeek.optionalWorkouts.filter((workout) => workout.status === 'completed').length;
   const allTodayDone = todayWorkouts.length > 0 && todayWorkouts.every((workout) => workout.status === 'completed' || completedIds.includes(workout.id));
   const hasCompletedThisWeek = workouts.some((workout) => workout.status === 'completed');
+  const activeWorkout = workouts.find((workout) => workout.id === activeWorkoutId) ?? todaysWorkout;
 
   function assignToday(workout: GeneratedWorkout) {
     const next = { ...planner, assignments: { ...planner.assignments, [workout.id]: todayIso } };
@@ -49,11 +53,11 @@ export function TodayPage() {
   }
 
   function completeToday() {
-    if (!todaysWorkout || !currentWeek || !plan) return;
-    const update = (week: GeneratedTrainingWeek) => ({ ...week, foundationWorkouts: week.foundationWorkouts.map((w) => w.id === todaysWorkout.id ? { ...w, status: 'completed' as const } : w), optionalWorkouts: week.optionalWorkouts.map((w) => w.id === todaysWorkout.id ? { ...w, status: 'completed' as const } : w) });
+    if (!activeWorkout || !currentWeek || !plan) return;
+    const update = (week: GeneratedTrainingWeek) => ({ ...week, foundationWorkouts: week.foundationWorkouts.map((w) => w.id === activeWorkout.id ? { ...w, status: 'completed' as const } : w), optionalWorkouts: week.optionalWorkouts.map((w) => w.id === activeWorkout.id ? { ...w, status: 'completed' as const } : w) });
     writeStorageValue(storageKeys.currentWeek, update(currentWeek));
     writeStorageValue(storageKeys.plan, { ...plan, weeks: plan.weeks.map((week) => week.weekNumber === currentWeek.weekNumber ? update(week) : week) });
-    setCompletedIds((ids) => [...ids, todaysWorkout.id]); setPanel(null); setSuccess('Workout saved. Nice work.');
+    setCompletedIds((ids) => [...ids, activeWorkout.id]); setPanel(null); setSuccess('Workout saved. Nice work.');
   }
 
   return <PageStack>
@@ -65,16 +69,18 @@ export function TodayPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: spacing.md }}><StatCard label="Phase" value={formatPhase(currentWeek.phase)} /><StatCard label="Week" value={`${currentWeek.weekNumber} of ${plan.summary.trainingWeeks}`} /></div>
     </CardStack></SectionCard></button>
     {success ? <SectionCard><Chip tone="green">{success}</Chip></SectionCard> : null}
-    {allTodayDone ? <SectionCard><CardStack><Chip tone="green">Completed</Chip><h3 style={{ ...typography.h2, margin: 0 }}>Nice work. Today is done.</h3></CardStack></SectionCard> : todaysWorkout ? <TodayWorkoutCard workout={todaysWorkout} onComplete={() => setPanel('complete')} onDetails={() => setPanel('details')} onMove={() => navigate('/week')} /> : <SectionCard><CardStack><h3 style={{ ...typography.h2, margin: 0 }}>{workouts.length ? 'Rest Day' : 'Nothing Planned'}</h3><p style={{ ...typography.body, color: colors.neutral.muted, margin: 0 }}>A calmer day still counts. If life has opened a window, you can choose one remaining workout for today.</p><PrimaryButton onClick={() => setChooserOpen(true)}>Choose Today&apos;s Workout</PrimaryButton>{chooserOpen ? (remaining.length ? remaining.map((workout) => <SecondaryButton key={workout.id} onClick={() => assignToday(workout)}>{workout.title}</SecondaryButton>) : <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>No remaining workouts this week.</p>) : null}</CardStack></SectionCard>}
+    {raceToday ? <RaceDayCard workout={raceToday} onComplete={() => { setActiveWorkoutId(raceToday.id); setPanel('complete'); }} onDetails={() => { setActiveWorkoutId(raceToday.id); setPanel('details'); }} /> : null}
+    <SectionCard><CardStack><h3 style={{ ...typography.h2, margin: 0 }}>Today&apos;s Plan</h3>{todayWorkouts.length ? todayWorkouts.map((workout) => <TodayWorkoutCard key={workout.id} workout={workout} onComplete={() => { setActiveWorkoutId(workout.id); setPanel('complete'); }} onDetails={() => { setActiveWorkoutId(workout.id); setPanel('details'); }} onMove={() => navigate('/week')} />) : <p style={{ ...typography.body, color: colors.neutral.muted, margin: 0 }}>Rest day. Build your fitness over the week, not by forcing life into a calendar.</p>}{allTodayDone ? <Chip tone="green">✓ Today&apos;s Plan Complete</Chip> : null}{allTodayDone && todayWorkouts.some(w => w.category === 'optional' && w.status !== 'completed') ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Optional workout still available.</p> : null}</CardStack></SectionCard>
     {nextWorkout ? <SimpleNextCard item={nextWorkout} /> : null}
     <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Weekly Progress</h3><ProgressRow label="Foundation" value={foundationDone} total={currentWeek.foundationWorkouts.length} /><ProgressRow label="Optional" value={optionalDone} total={currentWeek.optionalWorkouts.length} /></CardStack></SectionCard>
     {hasCompletedThisWeek ? <SectionCard><CardStack><Chip tone="green">Every completed run counts.</Chip><SecondaryButton onClick={() => navigate('/closeout')}>Close This Week</SecondaryButton></CardStack></SectionCard> : null}
     <SectionCard><Chip tone="green">{message}</Chip></SectionCard>
-  <SlidePanel isOpen={Boolean(panel)} title={panel === 'countdown' ? 'Plan details' : panel === 'details' ? 'Workout details' : 'Complete workout'} onClose={() => setPanel(null)}>{panel === 'countdown' ? <CardStack><StatCard label="Days to race" value={String(daysUntil)} /><StatCard label="Current week" value={`${currentWeek.weekNumber} of ${plan.summary.trainingWeeks}`} /><ProgressRow label="Plan progress" value={currentWeek.weekNumber} total={plan.summary.trainingWeeks} /><ProgressRow label="Foundation completed" value={foundationDone} total={currentWeek.foundationWorkouts.length} /><ProgressRow label="Optional completed" value={optionalDone} total={currentWeek.optionalWorkouts.length} /><StatCard label="Race" value={raceName} detail={plan.summary.raceDate} /></CardStack> : null}{panel === 'details' && todaysWorkout ? <WorkoutDetails workout={todaysWorkout} /> : null}{panel === 'complete' && todaysWorkout ? <CompletePanel workout={todaysWorkout} onSave={completeToday} /> : null}</SlidePanel>
+  <SlidePanel isOpen={Boolean(panel)} title={panel === 'countdown' ? 'Plan details' : panel === 'details' ? 'Workout details' : (activeWorkout?.status === 'completed' ? 'Edit summary' : 'Complete workout')} onClose={() => setPanel(null)}>{panel === 'countdown' ? <CardStack><StatCard label="Days to race" value={String(daysUntil)} /><StatCard label="Current week" value={`${currentWeek.weekNumber} of ${plan.summary.trainingWeeks}`} /><ProgressRow label="Plan progress" value={currentWeek.weekNumber} total={plan.summary.trainingWeeks} /><ProgressRow label="Foundation completed" value={foundationDone} total={currentWeek.foundationWorkouts.length} /><ProgressRow label="Optional completed" value={optionalDone} total={currentWeek.optionalWorkouts.length} /><StatCard label="Race" value={raceName} detail={plan.summary.raceDate} /></CardStack> : null}{panel === 'details' && activeWorkout ? <WorkoutDetails workout={activeWorkout} /> : null}{panel === 'complete' && activeWorkout ? <CompletePanel workout={activeWorkout} onSave={completeToday} /> : null}</SlidePanel>
   </PageStack>;
 }
 
-function TodayWorkoutCard({ workout, onComplete, onMove, onDetails }: { workout: GeneratedWorkout; onComplete: () => void; onMove: () => void; onDetails: () => void }) { return <SectionCard><CardStack><Chip tone={workout.status === 'completed' ? 'green' : tone(workout.type)}>{(workout.status === 'completed') ? 'Completed' : workout.type.replace('_', ' ')}</Chip><h3 style={{ ...typography.h2, margin: 0 }}>{workout.title}</h3><p style={{ ...typography.body, color: colors.neutral.muted, margin: 0 }}>{meta(workout)}</p><PrimaryButton onClick={onComplete}>Complete Workout</PrimaryButton><SecondaryButton onClick={onMove}>Move Workout</SecondaryButton><SecondaryButton onClick={onDetails}>View Details</SecondaryButton></CardStack></SectionCard>; }
+function TodayWorkoutCard({ workout, onComplete, onMove, onDetails }: { workout: GeneratedWorkout; onComplete: () => void; onMove: () => void; onDetails: () => void }) { return <div style={{ border: `1px solid ${colors.neutral.border}`, borderRadius: 18, padding: spacing.md, background: workout.status === 'completed' ? colors.primary.greenTint : colors.neutral.surface }}><CardStack><Chip tone={workout.status === 'completed' ? 'green' : tone(workout.type)}>{(workout.status === 'completed') ? 'Completed' : workout.category === 'optional' ? 'Optional' : workout.type.replace('_', ' ')}</Chip><h3 style={{ ...typography.h3, margin: 0 }}>{workout.title}</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{meta(workout)}</p>{workout.status === 'completed' ? <><p style={{ ...typography.small, color: colors.neutral.text, margin: 0 }}>Completed • Summary saved</p><PrimaryButton onClick={onDetails}>Review Summary</PrimaryButton><SecondaryButton onClick={onComplete}>Edit Summary</SecondaryButton></> : <><PrimaryButton onClick={onComplete}>Complete Workout</PrimaryButton><SecondaryButton onClick={onMove}>Move Workout</SecondaryButton><SecondaryButton onClick={onDetails}>View Details</SecondaryButton></>}</CardStack></div>; }
+function RaceDayCard({ workout, onComplete, onDetails }: { workout: GeneratedWorkout; onComplete: () => void; onDetails: () => void }) { return <SectionCard><CardStack><Chip tone="orange">🏁 TODAY IS RACE DAY</Chip><h2 style={{ ...typography.h1, margin: 0 }}>{workout.title}</h2><p style={{ ...typography.body, color: colors.neutral.text, margin: 0 }}>Countdown finished. Trust the work. You&apos;ve earned this. Go enjoy your race.</p>{workout.status === 'completed' ? <PrimaryButton onClick={onDetails}>Review Race Result</PrimaryButton> : <PrimaryButton onClick={onComplete}>Save Race Result</PrimaryButton>}</CardStack></SectionCard>; }
 function WorkoutDetails({ workout }: { workout: GeneratedWorkout }) { return <CardStack><h3 style={{ ...typography.h2, margin: 0 }}>{workout.title}</h3><Detail label="Purpose" value={workout.purpose} /><Detail label="Warm up" value={workout.warmup} /><Detail label="Main Set" value={workout.mainSet} /><Detail label="Cool down" value={workout.cooldown} /><Detail label="Coach Tip" value={workout.coachTip} /></CardStack>; }
 function CompletePanel({ workout, onSave }: { workout: GeneratedWorkout; onSave: () => void }) { return <CardStack><h3 style={{ ...typography.h3, margin: 0 }}>{workout.title}</h3><div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: spacing.xs }}>{['😫','🙁','😐','🙂','😁'].map((feel) => <button key={feel} type="button" style={{ minHeight: 44, border: `1px solid ${colors.neutral.border}`, background: colors.neutral.surface }}>{feel}</button>)}</div><TextArea placeholder="Note" /><TextInput placeholder="Actual time" inputMode="numeric" /><TextInput placeholder="Actual distance" inputMode="decimal" /><PrimaryButton onClick={onSave}>Save</PrimaryButton></CardStack>; }
 function SimpleNextCard({ item }: { item: { workout: GeneratedWorkout; label: string } }) { return <SectionCard><CardStack><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0, textTransform: 'uppercase' }}>Next Up • {item.label}</p><h3 style={{ ...typography.h3, margin: 0 }}>{item.workout.title}</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{meta(item.workout)} • {item.workout.purpose}</p></CardStack></SectionCard>; }

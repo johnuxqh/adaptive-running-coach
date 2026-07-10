@@ -6,6 +6,7 @@ import { generateTrainingPlan } from '../engine/planGenerator';
 import type { GoalType, PlanGeneratorInput, RaceType } from '../engine/planTypes';
 import type { AthleteProfile, MilestoneRace } from '../engine/types';
 import { storageKeys, writeStorageValue } from '../utils/storage';
+import { buildSuggestedPlanner } from '../utils/planning';
 
 const raceOptions: Array<{ label: string; value: RaceType }> = [
   { label: '5 km', value: '5k' },
@@ -134,6 +135,7 @@ export function OnboardingPage() {
     writeStorageValue(storageKeys.profile, profile);
     writeStorageValue(storageKeys.plan, plan);
     writeStorageValue(storageKeys.currentWeek, currentWeek);
+    writeStorageValue(storageKeys.weeklyPlanner, buildSuggestedPlanner(plan));
     navigate('/plan-summary', { replace: true });
   }
 
@@ -150,7 +152,7 @@ export function OnboardingPage() {
 }
 
 function renderStep({ step, form, updateForm, addMilestone, error, nextStep }: { step: number; form: FormState; updateForm: (next: Partial<FormState>) => void; addMilestone: () => void; error: string; nextStep: () => void }) {
-  if (step === 0) return <><HeroTitle eyebrow="Question 1 of 8" title="What should I call you?" /><TextInput placeholder="First name" value={form.name} onChange={(event) => updateForm({ name: event.currentTarget.value })} /></>;
+  if (step === 0) return <><HeroTitle eyebrow="Question 1 of 8" title="What should I call you?" /><TextInput placeholder="First Name" value={form.name} onChange={(event) => updateForm({ name: event.currentTarget.value })} /></>;
   if (step === 1) return <ChoiceStep eyebrow="Question 2 of 8" title="What are we training for?" options={raceOptions} selected={form.raceDistance} onSelect={(value) => updateForm({ raceDistance: value })} />;
   if (step === 2) return <><HeroTitle eyebrow="Question 3 of 8" title="When is race day?" /><input aria-label="Race day" type="date" value={form.raceDate} onChange={(event) => updateForm({ raceDate: event.currentTarget.value })} style={inputStyle} /></>;
   if (step === 3) return <ChoiceStep eyebrow="Question 4 of 8" title="What is your goal?" options={goalOptions} selected={form.goal} onSelect={(value) => updateForm({ goal: value })} />;
