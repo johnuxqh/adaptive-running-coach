@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, SectionCard, StatCard } from '../components/ui';
 import { colors, radius, spacing, typography } from '../design';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout } from '../engine/planTypes';
-import { readStorageValue, storageKeys, writeStorageValue } from '../utils/storage';
+import { buildCoachReportPayload, savePendingSync, sendCoachReport } from '../utils/googleSheetsSync';
+import { defaultSettings, readStorageValue, storageKeys, writeStorageValue, type LifeFitSettings } from '../utils/storage';
 import type { PlannerState, WeekSummary } from '../utils/exportUtils';
+import type { WorkoutLog } from '../engine/types';
 
 type Log = { workoutId: string; distanceKm?: number; actualDistanceKm?: number; durationMinutes?: number; actualDurationMinutes?: number };
 const emptyPlanner: PlannerState = { assignments: {}, extraWorkouts: [] };
@@ -18,22 +20,26 @@ export function WeekCloseoutPage() {
   const [weeklyNote, setWeeklyNote] = useState('');
   const [missedReason, setMissedReason] = useState('');
   const [complete, setComplete] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
 
   const data = useMemo(() => currentWeek && plan ? buildCloseout(plan, currentWeek, planner, logs) : null, [plan, currentWeek, planner, logs]);
   if (!plan || !currentWeek || !data) return <PageStack><HeroTitle eyebrow="Week closeout" title="No active week">Create a plan first, then come back to close out your week.</HeroTitle><PrimaryButton onClick={() => navigate('/onboarding')}>Create Plan</PrimaryButton></PageStack>;
 
-  function closeWeek() {
+  async function closeWeek() {
     if (!plan || !currentWeek || !data) return;
     const summary: WeekSummary = { id: `week-${currentWeek.weekNumber}-${Date.now()}`, athleteName: data.athleteName, weekNumber: currentWeek.weekNumber, phase: currentWeek.phase, weekType: currentWeek.weekType, weekStart: currentWeek.startsOn, weekEnd: currentWeek.endsOn, foundationPlanned: currentWeek.foundationWorkouts.length, foundationCompleted: data.foundationCompleted, optionalPlanned: currentWeek.optionalWorkouts.length, optionalCompleted: data.optionalCompleted, extraCompleted: data.extraCompleted, targetKmMin: currentWeek.targetDistanceRangeKm.min, targetKmMax: currentWeek.targetDistanceRangeKm.max, actualKm: data.actualKm, targetMinutesMin: currentWeek.targetDurationRangeMin.min, targetMinutesMax: currentWeek.targetDurationRangeMin.max, actualMinutes: data.actualMinutes, completedWorkoutIds: data.completed.map((w) => w.id), missedFoundationWorkoutIds: data.missedFoundation.map((w) => w.id), missedOptionalWorkoutIds: data.missedOptional.map((w) => w.id), weeklyNote: weeklyNote.trim(), missedReason: missedReason.trim(), closedAt: new Date().toISOString() };
     const summaries = readStorageValue<WeekSummary[]>(storageKeys.weekSummaries, []);
     writeStorageValue(storageKeys.weekSummaries, [...summaries.filter((item) => item.weekNumber !== currentWeek.weekNumber), summary]);
     const nextWeek = plan.weeks.find((week) => week.weekNumber === currentWeek.weekNumber + 1);
+    if (nextWeek && currentWeek.phase !== 'race_week' && currentWeek.weekType !== 'race') writeStorageValue(storageKeys.currentWeek, nextWeek);
+    const message = await syncCoachReport(plan, currentWeek, planner, logs as WorkoutLog[], summary);
+    setSyncMessage(message);
     if (!nextWeek || currentWeek.phase === 'race_week' || currentWeek.weekType === 'race') { setComplete(true); return; }
-    writeStorageValue(storageKeys.currentWeek, nextWeek);
+    window.alert(message);
     navigate('/today', { replace: true });
   }
 
-  if (complete) return <PageStack><HeroTitle eyebrow="Plan complete" title="Plan complete. Trust the work.">Every completed run counts. Take the learning with you.</HeroTitle><InfoBanner>Consistency beats perfection.</InfoBanner><PrimaryButton onClick={() => navigate('/today')}>Back to Today</PrimaryButton></PageStack>;
+  if (complete) return <PageStack><HeroTitle eyebrow="Plan complete" title="Plan complete. Trust the work.">Every completed run counts. Take the learning with you.</HeroTitle><InfoBanner>{syncMessage || 'Consistency beats perfection.'}</InfoBanner><PrimaryButton onClick={() => navigate('/today')}>Back to Today</PrimaryButton></PageStack>;
 
   return <PageStack>
     <HeroTitle eyebrow="Week closeout" title={`Week ${currentWeek.weekNumber} with ${data.athleteName}`}>{currentWeek.coachingMessage}</HeroTitle>
@@ -63,3 +69,17 @@ function ControlledTextArea({ value, onChange, placeholder }: { value: string; o
 function formatDate(date: string) { return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(`${date}T00:00:00.000Z`)); }
 function formatPhase(phase: string) { return phase.replace('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 function round(value: number) { return Math.round(value * 10) / 10; }
+
+async function syncCoachReport(plan: GeneratedTrainingPlan, week: GeneratedTrainingWeek, planner: PlannerState, logs: WorkoutLog[], summary: WeekSummary) {
+  const settings = readStorageValue<LifeFitSettings>(storageKeys.settings, defaultSettings);
+  const webhookUrl = settings.googleSheetsWebhookUrl?.trim();
+  if (!webhookUrl) return 'Week saved on this device.';
+  const payload = buildCoachReportPayload(plan, week, planner, logs, summary);
+  try {
+    await sendCoachReport(webhookUrl, payload);
+    return 'Coach report sent.';
+  } catch {
+    savePendingSync(webhookUrl, payload);
+    return 'Week saved. Coach report could not be sent, but nothing was lost.';
+  }
+}
