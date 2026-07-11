@@ -6,6 +6,7 @@ import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout } f
 import { buildCoachReportPayload, savePendingSync, sendCoachReport } from '../utils/googleSheetsSync';
 import { defaultSettings, readStorageValue, storageKeys, writeStorageValue, type LifeFitSettings } from '../utils/storage';
 import type { PlannerState, WeekSummary } from '../utils/exportUtils';
+import { resolveWeek, type CompletionLog, type ResolvedWorkout } from '../utils/planning';
 import type { WorkoutLog } from '../engine/types';
 
 type Log = { workoutId: string; distanceKm?: number; actualDistanceKm?: number; durationMinutes?: number; actualDurationMinutes?: number };
@@ -16,20 +17,23 @@ export function WeekCloseoutPage() {
   const plan = readStorageValue<GeneratedTrainingPlan | null>(storageKeys.plan, null);
   const currentWeek = readStorageValue<GeneratedTrainingWeek | null>(storageKeys.currentWeek, null) ?? plan?.weeks[0] ?? null;
   const planner = readStorageValue<PlannerState>(storageKeys.weeklyPlanner, emptyPlanner);
-  const logs = readStorageValue<Log[]>(storageKeys.workoutLogs, []);
+  const logs = readStorageValue<CompletionLog[]>(storageKeys.workoutLogs, []);
   const [weeklyNote, setWeeklyNote] = useState('');
   const [missedReason, setMissedReason] = useState('');
   const [complete, setComplete] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
 
   const data = useMemo(() => currentWeek && plan ? buildCloseout(plan, currentWeek, planner, logs) : null, [plan, currentWeek, planner, logs]);
   if (!plan || !currentWeek || !data) return <PageStack><HeroTitle eyebrow="Week closeout" title="No active week">Create a plan first, then come back to close out your week.</HeroTitle><PrimaryButton onClick={() => navigate('/onboarding')}>Create Plan</PrimaryButton></PageStack>;
 
   async function closeWeek() {
-    if (!plan || !currentWeek || !data) return;
-    const summary: WeekSummary = { id: `week-${currentWeek.weekNumber}-${Date.now()}`, athleteName: data.athleteName, weekNumber: currentWeek.weekNumber, phase: currentWeek.phase, weekType: currentWeek.weekType, weekStart: currentWeek.startsOn, weekEnd: currentWeek.endsOn, foundationPlanned: currentWeek.foundationWorkouts.length, foundationCompleted: data.foundationCompleted, optionalPlanned: currentWeek.optionalWorkouts.length, optionalCompleted: data.optionalCompleted, extraCompleted: data.extraCompleted, targetKmMin: currentWeek.targetDistanceRangeKm.min, targetKmMax: currentWeek.targetDistanceRangeKm.max, actualKm: data.actualKm, targetMinutesMin: currentWeek.targetDurationRangeMin.min, targetMinutesMax: currentWeek.targetDurationRangeMin.max, actualMinutes: data.actualMinutes, completedWorkoutIds: data.completed.map((w) => w.id), missedFoundationWorkoutIds: data.missedFoundation.map((w) => w.id), missedOptionalWorkoutIds: data.missedOptional.map((w) => w.id), weeklyNote: weeklyNote.trim(), missedReason: missedReason.trim(), closedAt: new Date().toISOString() };
-    const summaries = readStorageValue<WeekSummary[]>(storageKeys.weekSummaries, []);
-    writeStorageValue(storageKeys.weekSummaries, [...summaries.filter((item) => item.weekNumber !== currentWeek.weekNumber), summary]);
+    if (!plan || !currentWeek || !data || closing) return;
+    setClosing(true);
+    const existingSummaries = readStorageValue<WeekSummary[]>(storageKeys.weekSummaries, []);
+    const existingSummary = existingSummaries.find((item) => item.weekNumber === currentWeek.weekNumber);
+    const summary: WeekSummary = { id: existingSummary?.id ?? `week-${currentWeek.weekNumber}-${Date.now()}`, athleteName: data.athleteName, weekNumber: currentWeek.weekNumber, phase: currentWeek.phase, weekType: currentWeek.weekType, weekStart: currentWeek.startsOn, weekEnd: currentWeek.endsOn, foundationPlanned: data.progress.foundationPlanned, foundationCompleted: data.foundationCompleted, optionalPlanned: data.progress.optionalPlanned, optionalCompleted: data.optionalCompleted, extraCompleted: data.extraCompleted, targetKmMin: currentWeek.targetDistanceRangeKm.min, targetKmMax: currentWeek.targetDistanceRangeKm.max, actualKm: data.actualKm, targetMinutesMin: currentWeek.targetDurationRangeMin.min, targetMinutesMax: currentWeek.targetDurationRangeMin.max, actualMinutes: data.actualMinutes, completedWorkoutIds: data.completed.map((w) => w.id), missedFoundationWorkoutIds: data.missedFoundation.map((w) => w.id), missedOptionalWorkoutIds: data.missedOptional.map((w) => w.id), weeklyNote: weeklyNote.trim(), missedReason: missedReason.trim(), closedAt: new Date().toISOString() };
+    writeStorageValue(storageKeys.weekSummaries, [...existingSummaries.filter((item) => item.weekNumber !== currentWeek.weekNumber), summary]);
     const nextWeek = plan.weeks.find((week) => week.weekNumber === currentWeek.weekNumber + 1);
     if (nextWeek && currentWeek.phase !== 'race_week' && currentWeek.weekType !== 'race') writeStorageValue(storageKeys.currentWeek, nextWeek);
     const message = await syncCoachReport(plan, currentWeek, planner, logs as WorkoutLog[], summary);
@@ -51,18 +55,19 @@ export function WeekCloseoutPage() {
     <WorkoutList title="Completed workouts" workouts={data.completed} empty="Completed runs will appear here." />
     <WorkoutList title="Uncompleted foundation workouts" workouts={data.missedFoundation} empty="Foundation is complete this week." />
     <WorkoutList title="Uncompleted optional workouts" workouts={data.missedOptional} empty="No optional workouts waiting." />
-    <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Weekly note</h3><ControlledTextArea value={weeklyNote} onChange={setWeeklyNote} placeholder="Anything worth remembering from this week?" />{data.missedFoundation.length ? <><h3 style={{ ...typography.h3, margin: 0 }}>Missed workout note</h3><ControlledTextArea value={missedReason} onChange={setMissedReason} placeholder="Life happens. Anything that got in the way this week?" /></> : null}<PrimaryButton onClick={closeWeek}>Close Week</PrimaryButton></CardStack></SectionCard>
+    <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>Weekly note</h3><ControlledTextArea value={weeklyNote} onChange={setWeeklyNote} placeholder="Anything worth remembering from this week?" />{data.missedFoundation.length ? <><h3 style={{ ...typography.h3, margin: 0 }}>Missed workout note</h3><ControlledTextArea value={missedReason} onChange={setMissedReason} placeholder="Life happens. Anything that got in the way this week?" /></> : null}<PrimaryButton onClick={closeWeek} disabled={closing}>{closing ? 'Closing Week…' : 'Close Week'}</PrimaryButton></CardStack></SectionCard>
   </PageStack>;
 }
 
-function buildCloseout(plan: GeneratedTrainingPlan, week: GeneratedTrainingWeek, planner: PlannerState, logs: Log[]) {
-  const extras = planner.extraWorkouts.filter((workout) => workout.weekNumber === week.weekNumber);
-  const workouts = [...week.foundationWorkouts, ...week.optionalWorkouts, ...extras];
-  const logMap = new Map(logs.map((log) => [log.workoutId, log]));
-  const completed = workouts.filter((workout) => workout.status === 'completed' || logMap.has(workout.id));
-  const actualKm = completed.reduce((sum, workout) => sum + (logMap.get(workout.id)?.actualDistanceKm ?? logMap.get(workout.id)?.distanceKm ?? workout.plannedDistanceKm ?? 0), 0);
-  const actualMinutes = completed.reduce((sum, workout) => sum + (logMap.get(workout.id)?.actualDurationMinutes ?? logMap.get(workout.id)?.durationMinutes ?? workout.plannedDurationMin ?? 0), 0);
-  return { athleteName: plan.summary.athleteName, completed, foundationCompleted: week.foundationWorkouts.filter((w) => completed.some((item) => item.id === w.id)).length, optionalCompleted: week.optionalWorkouts.filter((w) => completed.some((item) => item.id === w.id)).length, extraCompleted: extras.filter((w) => completed.some((item) => item.id === w.id)).length, missedFoundation: week.foundationWorkouts.filter((w) => !completed.some((item) => item.id === w.id)), missedOptional: week.optionalWorkouts.filter((w) => !completed.some((item) => item.id === w.id)), actualKm: round(actualKm), actualMinutes: Math.round(actualMinutes) };
+function buildCloseout(plan: GeneratedTrainingPlan, week: GeneratedTrainingWeek, planner: PlannerState, logs: CompletionLog[]) {
+  const resolved = resolveWeek(week, planner, logs);
+  const progress = resolved.progress;
+  const byId = new Map(resolved.workouts.map((workout) => [workout.id, workout]));
+  const present = (w: ResolvedWorkout | undefined): w is ResolvedWorkout => Boolean(w);
+  const completed = progress.completedWorkoutIds.map((id) => byId.get(id)).filter(present);
+  const missedFoundation = progress.missedFoundationWorkoutIds.map((id) => byId.get(id)).filter(present);
+  const missedOptional = progress.missedOptionalWorkoutIds.map((id) => byId.get(id)).filter(present);
+  return { athleteName: plan.summary.athleteName, completed, foundationCompleted: progress.foundationCompleted, optionalCompleted: progress.optionalCompleted, extraCompleted: progress.extraCompleted, missedFoundation, missedOptional, actualKm: progress.actualKm, actualMinutes: progress.actualMinutes, progress };
 }
 function WorkoutList({ title, workouts, empty }: { title: string; workouts: GeneratedWorkout[]; empty: string }) { return <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>{title}</h3>{workouts.length ? workouts.map((workout) => <p key={workout.id} style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{workout.title}</p>) : <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{empty}</p>}</CardStack></SectionCard>; }
 function ControlledTextArea({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) { return <textarea value={value} onChange={(event) => onChange(event.currentTarget.value)} placeholder={placeholder} style={{ ...typography.body, width: '100%', minHeight: 120, boxSizing: 'border-box', resize: 'vertical', border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, padding: spacing.md, color: colors.neutral.text, background: colors.neutral.surface }} />; }

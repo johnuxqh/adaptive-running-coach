@@ -1,6 +1,7 @@
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout } from '../engine/planTypes';
 import type { WorkoutLog } from '../engine/types';
 import type { PlannerState, WeekSummary } from './exportUtils';
+import { resolveWeek, type CompletionLog, type ResolvedWorkout } from './planning';
 import { readStorageValue, storageKeys, writeStorageValue } from './storage';
 
 export type CoachReportPayload = {
@@ -35,7 +36,6 @@ export type CoachReportWorkout = {
 
 export type PendingCoachSync = { id: string; webhookUrl: string; payload: CoachReportPayload; savedAt: string };
 
-type WorkoutLogWithExtras = WorkoutLog & { actualDistanceKm?: number; actualDurationMinutes?: number; feeling?: string };
 
 export async function sendCoachReport(webhookUrl: string, payload: CoachReportPayload): Promise<void> {
   await postJson(webhookUrl, payload);
@@ -47,7 +47,7 @@ export async function testCoachWebhook(webhookUrl: string): Promise<void> {
 
 export function savePendingSync(webhookUrl: string, payload: CoachReportPayload): void {
   const pending = readStorageValue<PendingCoachSync[]>(storageKeys.pendingSync, []);
-  writeStorageValue(storageKeys.pendingSync, [...pending, { id: `${payload.weekSummary.id}-${Date.now()}`, webhookUrl, payload, savedAt: new Date().toISOString() }]);
+  writeStorageValue(storageKeys.pendingSync, [...pending.filter((item) => item.payload.weekSummary.id !== payload.weekSummary.id), { id: `${payload.weekSummary.id}-${Date.now()}`, webhookUrl, payload, savedAt: new Date().toISOString() }]);
 }
 
 export async function retryPendingSync(webhookUrl?: string): Promise<{ sent: number; failed: number }> {
@@ -75,8 +75,7 @@ export function getPendingSyncCount(): number {
 }
 
 export function buildCoachReportPayload(plan: GeneratedTrainingPlan, week: GeneratedTrainingWeek, planner: PlannerState, logs: WorkoutLog[], summary: WeekSummary): CoachReportPayload {
-  const allWorkouts = [...week.foundationWorkouts, ...week.optionalWorkouts, ...planner.extraWorkouts.filter((workout) => workout.weekNumber === week.weekNumber)];
-  const logMap = new Map(logs.map((log) => [log.workoutId, log as WorkoutLogWithExtras]));
+  const allWorkouts = resolveWeek(week, planner, logs as CompletionLog[]).workouts;
   return {
     source: 'life-fit-running-coach',
     version: '0.1',
@@ -88,18 +87,18 @@ export function buildCoachReportPayload(plan: GeneratedTrainingPlan, week: Gener
       targetKmMin: summary.targetKmMin, targetKmMax: summary.targetKmMax, actualKm: summary.actualKm, targetMinutesMin: summary.targetMinutesMin, targetMinutesMax: summary.targetMinutesMax, actualMinutes: summary.actualMinutes,
       weeklyNote: summary.weeklyNote, missedReason: summary.missedReason, closedAt: summary.closedAt,
     },
-    workouts: allWorkouts.map((workout) => buildWorkoutPayload(workout, planner, logMap)),
+    workouts: allWorkouts.map(buildWorkoutPayload),
   };
 }
 
-function buildWorkoutPayload(workout: GeneratedWorkout, planner: PlannerState, logMap: Map<string, WorkoutLogWithExtras>): CoachReportWorkout {
-  const log = logMap.get(workout.id);
+function buildWorkoutPayload(workout: ResolvedWorkout): CoachReportWorkout {
+  const log = workout.completion;
   return {
     workoutId: workout.id,
     workoutTitle: workout.title,
     category: workout.category,
     type: workout.type,
-    plannedDay: planner.assignments[workout.id] ?? workout.suggestedDay,
+    plannedDay: workout.assignedDay ?? 'Unplanned',
     status: workout.status,
     plannedDistanceKm: workout.plannedDistanceKm ?? '',
     actualDistanceKm: log?.actualDistanceKm ?? log?.distanceKm ?? '',
