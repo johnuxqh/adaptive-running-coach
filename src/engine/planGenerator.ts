@@ -74,13 +74,15 @@ export function generateTrainingPlan(input: PlanGeneratorInput): GeneratedTraini
     longRunKm = Math.max(3, longRunKm);
 
     const milestone = milestoneForWeek(input.milestoneRaces ?? [], dates.startsOn, dates.endsOn);
-    const workouts = buildWorkouts({ race: input.raceDistance, weekNumber, phase, weekType, weeklyKm, longRunKm, runsPerWeek: input.runsPerWeek, milestone, raceDate: input.raceDate });
+    const workouts = buildWorkouts({ race: input.raceDistance, raceGoal: input.raceGoal, weekNumber, phase, weekType, weeklyKm, longRunKm, runsPerWeek: input.runsPerWeek, milestone, raceDate: input.raceDate });
     if (milestone) baseWarnings.push(milestoneWarning(weekNumber));
 
     const minKm = weeklyKm * (1 - DISTANCE_RANGE);
     const maxKm = weeklyKm * (1 + DISTANCE_RANGE);
     return { id: `week-${weekNumber}`, weekNumber, startsOn: dates.startsOn, endsOn: dates.endsOn, phase, weekType, targetDistanceRangeKm: { min: Math.round(minKm), max: Math.round(maxKm) }, targetDurationRangeMin: { min: Math.round(minKm * MINUTES_PER_KM), max: Math.round(maxKm * MINUTES_PER_KM) }, foundationWorkouts: workouts.foundation, optionalWorkouts: workouts.optional, coachingMessage: milestone ? `${getCoachingMessage(phase, weekType)} Treat the milestone as this week's key effort.` : getCoachingMessage(phase, weekType), warnings: workouts.warnings };
   });
+
+  addWorkoutRealismWarnings(baseWarnings, input, weeks);
 
   const peakLongRun = Math.max(...weeks.flatMap((week) => week.foundationWorkouts.map((workout) => workout.type === 'long_run' ? workout.plannedDistanceKm ?? 0 : 0)));
   const peakWeekly = Math.max(...weeks.map((week) => week.targetDistanceRangeKm.max));
@@ -106,4 +108,31 @@ function addDestinationWarnings(warnings: PlanWarning[], input: PlanGeneratorInp
   if (targetWeeklyKm > input.currentWeeklyKm * 1.65 || targetLongRun > input.longestRunKm * 1.65) warnings.push({ id: 'aggressive_progression_required', severity: 'caution', message: 'Aggressive progression is required to approach the destination targets; listen closely to fatigue signals.' });
   if (input.runsPerWeek <= 3) warnings.push({ id: 'limited_runs_per_week', severity: 'caution', message: 'Limited runs per week constrains safe weekly volume and long-run support.' });
   if (goalKey(input.raceGoal) === 'competitive' && input.currentWeeklyKm < minWeeklyKm * 0.75) warnings.push({ id: 'competitive_low_starting_volume', severity: 'caution', message: 'Competitive goal starts from relatively low volume, so expectations should be adjusted.' });
+}
+
+
+function addWorkoutRealismWarnings(warnings: PlanWarning[], input: PlanGeneratorInput, weeks: GeneratedTrainingWeek[]) {
+  const qualityByWeek = weeks.map((week) => ({ week, quality: week.foundationWorkouts.find((workout) => workout.type === 'quality_session') }));
+  let repeated = 0;
+  for (let index = 1; index < qualityByWeek.length; index += 1) {
+    const current = qualityByWeek[index];
+    const previous = qualityByWeek[index - 1];
+    if (current.quality?.title && current.quality.title === previous.quality?.title && current.week.weekType === 'normal' && previous.week.weekType === 'normal') repeated += 1;
+  }
+  if (repeated > 1) warnings.push({ id: 'quality_repeated_too_often', severity: 'info', message: 'Some quality sessions repeat across normal weeks; review load if the athlete needs more variety.' });
+
+  const buildSpecificQuality = qualityByWeek.filter(({ week }) => week.phase === 'build' || week.phase === 'specific').map(({ quality }) => quality?.mainSet ?? '').join(' | ');
+  if (!/threshold|marathon|half|race|VO2|hill|tempo/i.test(buildSpecificQuality)) warnings.push({ id: 'no_quality_progression', severity: 'caution', message: 'Build and Specific phases show limited quality progression.' });
+  if (input.raceDistance === 'marathon' && !weeks.some((week) => week.phase === 'specific' && week.foundationWorkouts.some((workout) => /marathon effort|marathon-effort/i.test(`${workout.title} ${workout.mainSet}`)))) warnings.push({ id: 'marathon_specific_missing', severity: 'caution', message: 'Marathon Specific phase contains no marathon-effort work.' });
+  if (input.raceDistance === 'marathon' && !weeks.some((week) => week.foundationWorkouts.some((workout) => /Fuel Practice/i.test(workout.title)))) warnings.push({ id: 'marathon_fuel_practice_missing', severity: 'caution', message: 'Marathon plan contains no fuel-practice long run.' });
+  if (input.raceDistance === 'half_marathon' && !weeks.some((week) => week.phase === 'specific' && week.foundationWorkouts.some((workout) => /half-marathon|race effort|race-effort/i.test(`${workout.title} ${workout.mainSet}`)))) warnings.push({ id: 'half_specific_missing', severity: 'caution', message: 'Half-marathon Specific phase contains no race-specific work.' });
+
+  weeks.forEach((week) => {
+    const weekText = week.foundationWorkouts.map((workout) => `${workout.title} ${workout.mainSet}`).join(' | ');
+    if (week.weekType === 'recovery' && /fast finish|race-pace finish|race simulation|marathon-effort finish/i.test(weekText)) week.warnings.push('Recovery week contains a demanding long-run finish.');
+    if (week.phase === 'taper' && week.foundationWorkouts.filter((workout) => workout.type === 'quality_session').some((workout) => /20 min|15 min|3 x 10|2 x 15|VO2/i.test(workout.mainSet))) week.warnings.push('Taper contains excessive quality.');
+    if (week.phase === 'race_week' && week.foundationWorkouts.filter((workout) => workout.type === 'quality_session').length > 1) week.warnings.push('Race week contains excessive fatigue.');
+    const hardDays = week.foundationWorkouts.filter((workout) => workout.type === 'quality_session' || (/finish|race simulation|marathon effort/i.test(`${workout.title} ${workout.mainSet}`) && workout.type === 'long_run')).map((workout) => workout.suggestedDay);
+    if (hardDays.includes('Wednesday') && hardDays.includes('Thursday')) week.warnings.push('Hard sessions are assigned on consecutive days; keep the secondary session controlled or move it.');
+  });
 }
