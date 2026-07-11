@@ -2,7 +2,7 @@ declare function require(name: string): any;
 declare const process: { cwd(): string };
 const { mkdirSync, writeFileSync } = require('node:fs');
 const path = require('node:path');
-import { evaluateEngineHealth } from '../src/engine/engineHealth';
+import { classifyRunway, evaluateEngineHealth, grade, isWithinRange } from '../src/engine/engineHealth';
 import { generateTrainingPlan } from '../src/engine/planGenerator';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, PlanGeneratorInput, RaceType } from '../src/engine/planTypes';
 
@@ -25,6 +25,7 @@ function main() {
   writeCsv('plan-test-weeks.csv', weekRows(cases));
   writeCsv('plan-test-workouts.csv', workoutRows(cases));
   writeCsv('plan-test-health.csv', healthRows(cases));
+  runValidationAssertions(cases);
 
   const suspicious = cases.flatMap((item) => item.suspicious.map((warning) => `${item.caseId}: ${warning}`));
   console.log(`Generated ${cases.length} deterministic plan cases in ${outputDir}`);
@@ -113,6 +114,39 @@ function suspiciousPatterns(plan: GeneratedTrainingPlan): string[] {
   return warnings;
 }
 
+
+function runValidationAssertions(cases: CaseRecord[]) {
+  assert(isWithinRange(30, 30, 34) === true, 'exact long-run minimum must meet target');
+  assert(isWithinRange(34, 30, 34) === true, 'exact long-run maximum must meet target');
+  assert(isWithinRange(29.9, 30, 34) === false, 'below long-run minimum must miss target');
+  assert(isWithinRange(32, 30, 34) === true, 'inside long-run range must meet target');
+  assert(isWithinRange(34.1, 30, 34) === false, 'above long-run maximum must miss target');
+  assert(grade(90) === 'A' && grade(100) === 'A', 'A grade boundaries must be 90-100');
+  assert(grade(89) === 'B' && grade(80) === 'B', 'B grade boundaries must be 80-89');
+  assert(grade(79) === 'C' && grade(70) === 'C', 'C grade boundaries must be 70-79');
+  assert(grade(69) === 'D' && grade(60) === 'D', 'D grade boundaries must be 60-69');
+  assert(grade(59) === 'F', 'F grade boundary must be below 60');
+  assert(classifyRunway('marathon', 13) === 'SHORT', '13-week marathon is below minimum viable duration');
+  assert(classifyRunway('marathon', 15) === 'COMPRESSED', '15-week marathon is compressed but workable');
+  assert(classifyRunway('marathon', 16) === 'COMPRESSED', '16-week marathon is compressed but workable');
+  assert(classifyRunway('marathon', 20) === 'NORMAL', 'preferred marathon duration is normal');
+
+  const health = cases.map(({ caseId, plan }) => evaluateEngineHealth(plan, caseId));
+  for (const row of health) {
+    assert(row.longRunTargetMet === isWithinRange(row.achievedPeakLongRunKm, row.targetPeakLongRunMin, row.targetPeakLongRunMax), `${row.caseId} longRunTargetMet contradicts numeric range`);
+    assert(row.weeklyVolumeTargetMet === isWithinRange(row.achievedPeakWeeklyKm, row.targetPeakWeeklyKmMin, row.targetPeakWeeklyKmMax), `${row.caseId} weeklyVolumeTargetMet contradicts numeric range`);
+  }
+  assert(health.some((row) => (!row.longRunTargetMet || !row.weeklyVolumeTargetMet) && row.engineScore < 80), 'major target misses must reduce score below excellent/good');
+  assert(health.some((row) => row.engineGrade === 'D' || row.engineGrade === 'F'), 'structurally or coaching-weak plans must be able to receive D/F');
+  assert(health.some((row) => row.raceWeekPresent && row.taperPresent && (!row.longRunTargetMet || !row.weeklyVolumeTargetMet) && (row.engineGrade === 'C' || row.engineGrade === 'B')), 'structurally sound constrained plans may receive C/B');
+  const lauren = health.filter((row) => row.caseId === 'CASE-181' || row.caseId === 'CASE-182');
+  assert(lauren.every((row) => row.runwayClassification !== 'SHORT' && !row.warnings.includes('Race day is close')), 'Lauren-style marathon runway must not be labelled race day is close');
+  assert(health.some((row) => row.maxRecoveryBouncePercent > 18 && row.maxBuildToBuildIncreasePercent <= 12 && !row.issues.includes('recovery rebound')), 'recovery bounce alone must not create unsafe-build issue');
+  assert(health.some((row) => row.maxBuildToBuildIncreasePercent > 12 && row.issues.includes('build-to-build increase')), 'unsafe build-to-build increases must warn');
+}
+
+function assert(condition: boolean, message: string) { if (!condition) throw new Error(message); }
+
 function summaryRows(cases: CaseRecord[]): string[][] {
   return [[
     'caseId','athleteName','raceDistance','raceGoal','raceDate','weeksToRace','currentWeeklyKm','longestRunKm','runsPerWeek','totalFoundationWorkouts','totalOptionalWorkouts','estimatedKmMin','estimatedKmMax','estimatedMinutesMin','estimatedMinutesMax','peakWeeklyKmMax','peakLongRunKm','numberRecoveryWeeks','numberTaperWeeks','warningCount','warnings'
@@ -132,10 +166,10 @@ function weekRows(cases: CaseRecord[]): string[][] {
 }
 
 function healthRows(cases: CaseRecord[]): string[][] {
-  const header = ['caseId','raceDistance','raceGoal','weeksToRace','currentWeeklyKm','longestRunKm','runsPerWeek','achievedPeakLongRunKm','peakLongRunWeek','targetPeakLongRunMin','targetPeakLongRunMax','longRunTargetMet','achievedPeakWeeklyKm','targetPeakWeeklyKmMin','targetPeakWeeklyKmMax','weeklyVolumeTargetMet','recoveryWeeksPresent','taperPresent','raceWeekPresent','foundationCountValid','suspiciousWarningCount','engineScore','engineGrade','issues'];
+  const header = ['caseId','raceDistance','raceGoal','weeksToRace','currentWeeklyKm','longestRunKm','runsPerWeek','achievedPeakLongRunKm','peakLongRunWeek','targetPeakLongRunMin','targetPeakLongRunMax','longRunTargetMet','achievedPeakWeeklyKm','targetPeakWeeklyKmMin','targetPeakWeeklyKmMax','weeklyVolumeTargetMet','maxOrdinaryWeekIncreasePercent','maxBuildToBuildIncreasePercent','maxRecoveryBouncePercent','runwayClassification','recoveryWeeksPresent','taperPresent','raceWeekPresent','foundationCountValid','suspiciousWarningCount','engineScore','engineGrade','issues','warnings'];
   const rows = cases.map(({ caseId, plan }) => {
     const h = evaluateEngineHealth(plan, caseId);
-    return [h.caseId,h.raceDistance,h.raceGoal,String(h.weeksToRace),String(h.currentWeeklyKm),String(h.longestRunKm),String(h.runsPerWeek),String(h.peakLongRunKm),String(h.peakLongRunWeek),String(h.targetPeakLongRunMin),String(h.targetPeakLongRunMax),String(h.longRunTargetMet),String(h.peakWeeklyKm),String(h.targetPeakWeeklyKmMin),String(h.targetPeakWeeklyKmMax),String(h.weeklyVolumeTargetMet),String(h.recoveryWeeksPresent),String(h.taperPresent),String(h.raceWeekPresent),String(h.foundationCountValid),String(h.suspiciousWarningCount),String(h.engineScore),h.engineGrade,h.issues];
+    return [h.caseId,h.raceDistance,h.raceGoal,String(h.weeksToRace),String(h.currentWeeklyKm),String(h.longestRunKm),String(h.runsPerWeek),String(h.achievedPeakLongRunKm),String(h.peakLongRunWeek),String(h.targetPeakLongRunMin),String(h.targetPeakLongRunMax),String(h.longRunTargetMet),String(h.achievedPeakWeeklyKm),String(h.targetPeakWeeklyKmMin),String(h.targetPeakWeeklyKmMax),String(h.weeklyVolumeTargetMet),String(h.maxOrdinaryWeekIncreasePercent),String(h.maxBuildToBuildIncreasePercent),String(h.maxRecoveryBouncePercent),h.runwayClassification,String(h.recoveryWeeksPresent),String(h.taperPresent),String(h.raceWeekPresent),String(h.foundationCountValid),String(h.suspiciousWarningCount),String(h.engineScore),h.engineGrade,h.issues,h.warnings];
   });
   return [header, ...rows];
 }

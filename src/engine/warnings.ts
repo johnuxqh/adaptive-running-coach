@@ -16,15 +16,21 @@ export function createPlanWarnings(input: {
 }): PlanWarning[] {
   const warnings: PlanWarning[] = [];
 
-  if (input.weeks < input.template.preferredWeeks) {
+  if (input.weeks < input.template.minimumWeeks - 2) {
     warnings.push({
       id: 'short_runway',
       severity: 'caution',
-      message: 'Race day is close, so this plan prioritises the safest useful gains rather than aggressive fitness building.',
+      message: 'Race day is close relative to the minimum viable build for this distance, so this plan prioritises the safest useful gains rather than aggressive fitness building.',
+    });
+  } else if (input.weeks < input.template.preferredWeeks) {
+    warnings.push({
+      id: 'compressed_runway',
+      severity: 'info',
+      message: 'This is a compressed but workable preparation window, so progression stays conservative.',
     });
   }
 
-  if (input.weeks > input.template.preferredWeeks) {
+  if (input.weeks > input.template.maximumWeeks) {
     warnings.push({
       id: 'extended_base',
       severity: 'info',
