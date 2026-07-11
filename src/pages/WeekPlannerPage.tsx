@@ -5,7 +5,7 @@ import { colors, radius, spacing, typography } from '../design';
 import { addDays, parseIsoDate, toIsoDate } from '../engine/dateHelpers';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, GeneratedWorkoutType, TrainingPhase, WeekType } from '../engine/planTypes';
 import { readStorageValue, storageKeys, writeStorageValue } from '../utils/storage';
-import { buildSuggestedPlanner, workoutsForWeek } from '../utils/planning';
+import { buildSuggestedPlanner, resolveWeek, upsertWorkoutLog, type CompletionLog } from '../utils/planning';
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const plannerKey = storageKeys.weeklyPlanner;
@@ -36,8 +36,9 @@ export function WeekPlannerPage() {
   const [extraTypeLabel, setExtraTypeLabel] = useState(extraTypes[0].label);
   const [extraCategory, setExtraCategory] = useState<PlannerCategory>('extra');
   const [feedback, setFeedback] = useState('');
+  const [logs, setLogs] = useState<CompletionLog[]>(() => readStorageValue<CompletionLog[]>(storageKeys.workoutLogs, []));
 
-  const workouts = useMemo(() => currentWeek ? workoutsForWeek(currentWeek, planner) : [], [currentWeek, planner]);
+  const workouts = useMemo(() => currentWeek ? resolveWeek(currentWeek, planner, logs).workouts : [], [currentWeek, planner, logs]);
   const days = useMemo(() => currentWeek ? dayNames.map((name, index) => ({ name, date: toIsoDate(addDays(parseIsoDate(currentWeek.startsOn), index)) })) : [], [currentWeek]);
   const assignedByDay = days.map((day) => ({ ...day, workouts: workouts.filter((workout) => planner.assignments[workout.id] === day.date) }));
   const remaining = workouts.filter((workout) => !planner.assignments[workout.id]);
@@ -53,12 +54,13 @@ export function WeekPlannerPage() {
     setPanel(null);
   }
   function completeWorkout(workoutId: string) {
-    const update = (week: GeneratedTrainingWeek) => ({ ...week, foundationWorkouts: week.foundationWorkouts.map((w) => w.id === workoutId ? { ...w, status: 'completed' as const } : w), optionalWorkouts: week.optionalWorkouts.map((w) => w.id === workoutId ? { ...w, status: 'completed' as const } : w) });
-    if (currentWeek) writeStorageValue(storageKeys.currentWeek, update(currentWeek));
-    if (plan) writeStorageValue(storageKeys.plan, { ...plan, weeks: plan.weeks.map((week) => week.weekNumber === currentWeek?.weekNumber ? update(week) : week) });
+    if (!currentWeek) return;
+    const existing = logs.find((log) => log.workoutId === workoutId);
+    const nextLogs = upsertWorkoutLog(logs, { id: existing?.id ?? `log-${workoutId}-${Date.now()}`, workoutId, weekNumber: currentWeek.weekNumber, completedAt: existing?.completedAt ?? new Date().toISOString(), status: 'completed' });
+    setLogs(nextLogs); writeStorageValue(storageKeys.workoutLogs, nextLogs);
     setFeedback('Workout completed. Nice work.'); setPanel(null);
   }
-  function remove(workoutId: string) { const { [workoutId]: _removed, ...assignments } = planner.assignments; savePlanner({ ...planner, assignments }); setFeedback('Workout returned to Remaining Workouts.'); }
+  function remove(workoutId: string) { if (logs.some((log) => log.workoutId === workoutId)) { setFeedback('Completed workouts stay locked. Use Edit Summary instead.'); return; } const { [workoutId]: _removed, ...assignments } = planner.assignments; savePlanner({ ...planner, assignments }); setFeedback('Workout returned to Remaining Workouts.'); }
   function addExtraWorkout() {
     if (!currentWeek) return;
     const selected = extraTypes.find((item) => item.label === extraTypeLabel) ?? extraTypes[0];

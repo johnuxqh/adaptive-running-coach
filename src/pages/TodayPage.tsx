@@ -7,7 +7,7 @@ import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, Ge
 import type { AthleteProfile } from '../engine/types';
 import { seedMessages } from '../data/seedMessages';
 import { readStorageValue, storageKeys, writeStorageValue } from '../utils/storage';
-import { buildSuggestedPlanner, workoutsForWeek } from '../utils/planning';
+import { buildSuggestedPlanner, resolveWeek, upsertWorkoutLog, type CompletionLog } from '../utils/planning';
 
 type PlannerState = { assignments: Record<string, string>; extraWorkouts: GeneratedWorkout[] };
 const emptyPlanner: PlannerState = { assignments: {}, extraWorkouts: [] };
@@ -20,9 +20,10 @@ export function TodayPage() {
   const currentWeek = readStorageValue<GeneratedTrainingWeek | null>(storageKeys.currentWeek, null) ?? plan?.weeks[0] ?? null;
   const [planner, setPlanner] = useState<PlannerState>(() => plan ? buildSuggestedPlanner(plan, readStorageValue<PlannerState>(storageKeys.weeklyPlanner, emptyPlanner)) : readStorageValue<PlannerState>(storageKeys.weeklyPlanner, emptyPlanner));
   const [message] = useState(() => seedMessages[Math.floor(Math.random() * seedMessages.length)]);
+  const [logs, setLogs] = useState<CompletionLog[]>(() => readStorageValue<CompletionLog[]>(storageKeys.workoutLogs, []));
   const todayIso = toIsoDate(new Date());
 
-  const workouts = useMemo(() => currentWeek ? workoutsForWeek(currentWeek, planner) : [], [currentWeek, planner]);
+  const workouts = useMemo(() => currentWeek ? resolveWeek(currentWeek, planner, logs).workouts : [], [currentWeek, planner, logs]);
   const todayWorkouts = workouts.filter((workout) => planner.assignments[workout.id] === todayIso);
   const todaysWorkout = todayWorkouts[0];
   const raceToday = todayWorkouts.find((workout) => workout.type === 'race');
@@ -54,10 +55,9 @@ export function TodayPage() {
 
   function completeToday() {
     if (!activeWorkout || !currentWeek || !plan) return;
-    const update = (week: GeneratedTrainingWeek) => ({ ...week, foundationWorkouts: week.foundationWorkouts.map((w) => w.id === activeWorkout.id ? { ...w, status: 'completed' as const } : w), optionalWorkouts: week.optionalWorkouts.map((w) => w.id === activeWorkout.id ? { ...w, status: 'completed' as const } : w) });
-    writeStorageValue(storageKeys.currentWeek, update(currentWeek));
-    writeStorageValue(storageKeys.plan, { ...plan, weeks: plan.weeks.map((week) => week.weekNumber === currentWeek.weekNumber ? update(week) : week) });
-    setCompletedIds((ids) => [...ids, activeWorkout.id]); setPanel(null); setSuccess('Workout saved. Nice work.');
+    const nextLogs = upsertWorkoutLog(logs, { id: activeWorkout.completion?.id ?? `log-${activeWorkout.id}-${Date.now()}`, workoutId: activeWorkout.id, weekNumber: currentWeek.weekNumber, completedAt: activeWorkout.completion?.completedAt ?? new Date().toISOString(), status: 'completed' });
+    setLogs(nextLogs); writeStorageValue(storageKeys.workoutLogs, nextLogs);
+    setCompletedIds((ids) => ids.includes(activeWorkout.id) ? ids : [...ids, activeWorkout.id]); setPanel(null); setSuccess('Workout saved. Nice work.');
   }
 
   return <PageStack>

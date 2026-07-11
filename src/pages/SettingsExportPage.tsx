@@ -65,7 +65,7 @@ export function SettingsExportPage() {
   }
 
   function saveProfileName() { if (profile) writeStorageValue(storageKeys.profile, { ...profile, name, updatedAt: new Date().toISOString() }); setPanel(null); }
-  function savePlanEdit() { if (profile) writeStorageValue(storageKeys.profile, { ...profile, raceGoal: { ...profile.raceGoal, raceDate, goalDescription: raceGoal }, updatedAt: new Date().toISOString() }); setPanel(null); }
+  function savePlanEdit() { if (!window.confirm('Completed history stays locked. This saves profile-level future plan notes only and does not regenerate workouts.')) return; if (profile) writeStorageValue(storageKeys.profile, { ...profile, raceGoal: { ...profile.raceGoal, raceDate, goalDescription: raceGoal }, updatedAt: new Date().toISOString() }); setPanel(null); }
 
   function resetApp() {
     if (!window.confirm('Reset Life-Fit Running Coach? This removes your profile, plan, current week, workout logs, week summaries, and settings.')) return;
@@ -75,7 +75,8 @@ export function SettingsExportPage() {
 
   function exportPlan() {
     if (!plan) return;
-    download(`life-fit-full-plan-${safeName(athleteName)}-${stamp()}.csv`, buildFullPlanCsv(plan), 'text/csv;charset=utf-8');
+    const planner = readStorageValue<PlannerState>(storageKeys.weeklyPlanner, emptyPlanner);
+    download(`life-fit-full-plan-${safeName(athleteName)}-${stamp()}.csv`, buildFullPlanCsv(plan, planner), 'text/csv;charset=utf-8');
   }
 
   function exportCoachReport() {
@@ -132,7 +133,7 @@ export function SettingsExportPage() {
 function SettingsCard({ title, children }: { title: string; children: React.ReactNode }) { return <SectionCard><h3 style={{ ...typography.h3, margin: 0 }}>{title}</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{children}</p></SectionCard>; }
 function ActionCard({ title, text, action, onClick, disabled }: { title: string; text: string; action: string; onClick: () => void; disabled?: boolean }) { return <SectionCard><CardStack><h3 style={{ ...typography.h3, margin: 0 }}>{title}</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{text}</p><SecondaryButton onClick={onClick} disabled={disabled}>{action}</SecondaryButton></CardStack></SectionCard>; }
 function clearApp() { removeStorageValue(storageKeys.profile); removeStorageValue(storageKeys.plan); removeStorageValue(storageKeys.currentWeek); removeStorageValue(storageKeys.workoutLogs); removeStorageValue(storageKeys.settings); removeStorageValue(storageKeys.weeklyPlanner); removeStorageValue(storageKeys.weekSummaries); removeStorageValue(storageKeys.pendingSync); }
-function parseBackup(raw: string): BackupPayload | null { try { const value = JSON.parse(raw) as Partial<BackupPayload>; if (!('profile' in value) || !('plan' in value) || !Array.isArray(value.workoutLogs) || !value.plannerState || !Array.isArray(value.weekSummaries)) return null; return value as BackupPayload; } catch { return null; } }
+function parseBackup(raw: string): BackupPayload | null { try { const value = JSON.parse(raw) as Partial<BackupPayload>; if (!value || typeof value !== 'object' || !('profile' in value) || !('plan' in value) || !Array.isArray(value.workoutLogs) || !value.plannerState || !Array.isArray(value.weekSummaries)) return null; return { profile: value.profile ?? null, plan: value.plan ?? null, currentWeek: value.currentWeek ?? null, plannerState: { assignments: typeof value.plannerState.assignments === 'object' && value.plannerState.assignments ? value.plannerState.assignments : {}, extraWorkouts: Array.isArray(value.plannerState.extraWorkouts) ? value.plannerState.extraWorkouts : [] }, workoutLogs: value.workoutLogs, weekSummaries: value.weekSummaries, settings: value.settings ?? defaultSettings }; } catch { return null; } }
 
 const settingsButton = { ...typography.button, display: 'flex', justifyContent: 'space-between', width: '100%', border: `1px solid ${colors.neutral.border}`, borderRadius: 18, padding: spacing.md, background: colors.neutral.surface, color: colors.neutral.text } as const;
 const linkButton = { ...typography.caption, border: 0, background: 'transparent', color: colors.primary.green, textDecoration: 'underline', cursor: 'pointer' } as const;
