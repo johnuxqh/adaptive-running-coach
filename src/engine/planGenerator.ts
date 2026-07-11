@@ -1,5 +1,6 @@
 import { daysBetween, getTrainingWeekDates, parseIsoDate, startOfTrainingWeek } from './dateHelpers';
 import { buildPlanSummary } from './planSummary';
+import { finalisePlanIntegrity } from './planValidation';
 import { goalKey, peakLongRunTargets, peakWeeklyTargets, raceDistanceKm, targetForRunway } from './targets';
 import { planTemplates } from './trainingTemplates';
 import { buildWorkouts } from './workoutBuilder';
@@ -89,7 +90,9 @@ export function generateTrainingPlan(input: PlanGeneratorInput): GeneratedTraini
   if (peakLongRun < longRunRange.min) baseWarnings.push({ id: 'target_long_run_not_met', severity: 'caution', message: `Peak long run ${peakLongRun}km is below the ${longRunRange.min}-${longRunRange.max}km destination target; treat this as an under-target plan.` });
   if (peakWeekly < weeklyRange.min) baseWarnings.push({ id: 'target_weekly_volume_not_met', severity: 'caution', message: `Peak weekly volume ${peakWeekly}km is below the ${weeklyRange.min}-${weeklyRange.max}km destination target.` });
 
-  return { id: `plan-${input.athleteName.toLowerCase().replace(/\s+/g, '-')}-${input.raceDate}`, inputs: input, weeksFromNowToRaceWeek: weeks.length, weeks, warnings: baseWarnings, summary: buildPlanSummary(input, weeks, daysUntilRace, template.emphasis, baseWarnings) };
+  const plan = { id: `plan-${input.athleteName.toLowerCase().replace(/\s+/g, '-')}-${input.raceDate}`, inputs: input, weeksFromNowToRaceWeek: weeks.length, weeks, warnings: baseWarnings, summary: buildPlanSummary(input, weeks, daysUntilRace, template.emphasis, baseWarnings) };
+  const checkedPlan = finalisePlanIntegrity(plan);
+  return { ...checkedPlan, summary: buildPlanSummary(input, checkedPlan.weeks, daysUntilRace, template.emphasis, checkedPlan.warnings) };
 }
 
 function milestoneForWeek(milestones: PlanGeneratorMilestoneRace[], startsOn: string, endsOn: string): PlanGeneratorMilestoneRace | undefined {

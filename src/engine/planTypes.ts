@@ -181,4 +181,6 @@ export interface GeneratedTrainingPlan {
   weeks: GeneratedTrainingWeek[];
   summary: GeneratedPlanSummary;
   warnings: import('./warnings').PlanWarning[];
+  validation?: import('./planValidation').PlanValidationResult;
 }
+
