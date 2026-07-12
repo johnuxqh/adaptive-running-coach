@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, ProgressBar, SecondaryButton, SectionCard, SlidePanel, TextArea, TextInput } from '../components/ui';
+import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, ProgressBar, SecondaryButton, SectionCard, SlidePanel, TextInput } from '../components/ui';
 import { colors, radius, spacing, typography } from '../design';
 import { addDays, parseIsoDate, toIsoDate } from '../engine/dateHelpers';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, GeneratedWorkoutType, TrainingPhase, WeekType } from '../engine/planTypes';
 import { readStorageValue, storageKeys, writeStorageValue } from '../utils/storage';
-import { buildSuggestedPlanner, resolveWeek, upsertWorkoutLog, type CompletionLog } from '../utils/planning';
+import { buildSuggestedPlanner, resolveWeek, upsertWorkoutLog, type CompletionLog, type ResolvedWorkout } from '../utils/planning';
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const plannerKey = storageKeys.weeklyPlanner;
@@ -53,12 +53,20 @@ export function WeekPlannerPage() {
     setFeedback(`Workout planned for ${dayName}.`);
     setPanel(null);
   }
-  function completeWorkout(workoutId: string) {
+  function completeWorkout(workoutId: string, details: { actualDistanceKm?: number; actualDurationMinutes?: number; perceivedEffort?: number; journalNote?: string }) {
     if (!currentWeek) return;
     const existing = logs.find((log) => log.workoutId === workoutId);
-    const nextLogs = upsertWorkoutLog(logs, { id: existing?.id ?? `log-${workoutId}-${Date.now()}`, workoutId, weekNumber: currentWeek.weekNumber, completedAt: existing?.completedAt ?? new Date().toISOString(), status: 'completed' });
+    const nextLogs = upsertWorkoutLog(logs, {
+      ...existing,
+      id: existing?.id ?? `log-${workoutId}-${Date.now()}`,
+      workoutId,
+      weekNumber: currentWeek.weekNumber,
+      completedAt: existing?.completedAt ?? new Date().toISOString(),
+      status: 'completed',
+      ...details,
+    });
     setLogs(nextLogs); writeStorageValue(storageKeys.workoutLogs, nextLogs);
-    setFeedback('Workout completed. Nice work.'); setPanel(null);
+    setFeedback('Workout complete. Your reflection has been saved.'); setPanel(null);
   }
   function remove(workoutId: string) { if (logs.some((log) => log.workoutId === workoutId)) { setFeedback('Completed workouts stay locked. Use Edit Summary instead.'); return; } const { [workoutId]: _removed, ...assignments } = planner.assignments; savePlanner({ ...planner, assignments }); setFeedback('Workout returned to Available Workouts.'); }
   function addExtraWorkout() {
@@ -132,7 +140,7 @@ export function WeekPlannerPage() {
       {panel?.kind === 'chooseForDay' && activeDay ? <ChooseForDayPanel day={activeDay} remaining={remaining} onAssign={(workout) => assign(workout.id, activeDay.date)} onOpenRemaining={() => setPanel({ kind: 'remaining' })} /> : null}
       {panel?.kind === 'day' && activeDay ? <PlannedDayPanel day={activeDay} onView={(workout) => setPanel({ kind: 'detail', workoutId: workout.id })} onMove={(workout) => setPanel({ kind: 'moveWorkout', workoutId: workout.id })} onRemove={remove} /> : null}
       {panel?.kind === 'detail' && activeWorkout ? <WorkoutDetailPanel workout={activeWorkout} week={currentWeek} plannedDay={days.find((day) => day.date === planner.assignments[activeWorkout.id])?.name} onMove={() => setPanel({ kind: 'moveWorkout', workoutId: activeWorkout.id })} onComplete={() => setPanel({ kind: 'complete', workoutId: activeWorkout.id })} onRemove={() => remove(activeWorkout.id)} /> : null}
-      {panel?.kind === 'complete' && activeWorkout ? <CompletePanel workout={activeWorkout} onSave={() => completeWorkout(activeWorkout.id)} /> : null}
+      {panel?.kind === 'complete' && activeWorkout ? <CompletePanel workout={activeWorkout} plannedDay={days.find((day) => day.date === (panel.date ?? planner.assignments[activeWorkout.id]))?.name} onViewPrescription={() => setPanel({ kind: 'detail', workoutId: activeWorkout.id })} onSave={(details) => completeWorkout(activeWorkout.id, details)} /> : null}
       {(panel?.kind === 'assignWorkout' || panel?.kind === 'moveWorkout') && activeWorkout ? <DayPickerPanel workout={activeWorkout} days={days} onAssign={(date) => assign(activeWorkout.id, date)} /> : null}
     </SlidePanel>
   </PageStack>;
@@ -146,7 +154,7 @@ function workoutTone(workout: GeneratedWorkout) { if (workout.type === 'quality_
 function hard(workout: GeneratedWorkout) { return workout.type === 'quality_session' || workout.type === 'long_run' || workout.intensity.toLowerCase().includes('hard'); }
 function buildWarnings(days: { workouts: GeneratedWorkout[] }[]) { const warnings: string[] = []; const hardDays = days.filter((day) => day.workouts.some(hard)).length; days.forEach((day, index) => { const today = day.workouts; const previous = days[index - 1]?.workouts ?? []; if (today.some((w) => w.type === 'quality_session') && previous.some((w) => w.type === 'quality_session')) warnings.push('Gentle note: threshold-style sessions on back-to-back days can feel spicy.'); if (today.some((w) => w.type === 'long_run') && previous.some((w) => w.type === 'quality_session')) warnings.push('Friendly reminder: a long run after threshold may need extra recovery.'); }); if (hardDays >= 3) warnings.push('This week now has three hard days. Keep the easy days truly easy.'); return [...new Set(warnings)]; }
 
-function WeekSnapshot({ days, todayIso, onDayTap, onWorkoutTap, onMove }: { days: Array<{ name: string; date: string; workouts: GeneratedWorkout[] }>; todayIso: string; onDayTap: (day: { name: string; date: string; workouts: GeneratedWorkout[] }) => void; onWorkoutTap: (workout: GeneratedWorkout) => void; onMove: (workout: GeneratedWorkout) => void }) {
+function WeekSnapshot({ days, todayIso, onDayTap, onWorkoutTap, onMove }: { days: Array<{ name: string; date: string; workouts: ResolvedWorkout[] }>; todayIso: string; onDayTap: (day: { name: string; date: string; workouts: ResolvedWorkout[] }) => void; onWorkoutTap: (workout: ResolvedWorkout) => void; onMove: (workout: ResolvedWorkout) => void }) {
   return <SectionCard><CardStack>
     <div><h3 style={{ ...typography.h3, margin: 0 }}>Weekly Planner</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xxs}px 0 0` }}>Coach recommendation. Tap a workout for details, or move it to fit life.</p></div>
     <div style={{ display: 'grid', gap: spacing.xs }}>
@@ -193,11 +201,11 @@ function roleLabel(workout: GeneratedWorkout) {
   if (workout.type === 'easy_run') return '💙 Easy';
   return workout.category === 'optional' ? '⚪ Optional' : 'Support';
 }
-function WorkoutRow({ workout, onOpen, onMove }: { workout: GeneratedWorkout; onOpen: () => void; onMove: () => void }) {
+function WorkoutRow({ workout, onOpen, onMove }: { workout: ResolvedWorkout; onOpen: () => void; onMove: () => void }) {
   return <div style={workoutRowShellStyle}>
     <button type="button" onClick={onOpen} style={workoutRowButtonStyle}>
       <span aria-hidden="true" style={{ width: 22 }}>{roleIndicator(workout)}</span>
-      <span style={{ minWidth: 0 }}><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{workout.title}</strong><small style={{ color: colors.neutral.muted }}>{[workout.plannedDurationMin && `${workout.plannedDurationMin} min`, workout.plannedDistanceKm && `${workout.plannedDistanceKm} km`].filter(Boolean).join(' • ') || 'Flexible'}</small></span>
+      <span style={{ minWidth: 0 }}><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{workout.title}</strong><small style={{ color: colors.neutral.muted }}>{workout.completion ? 'Completed' : ([workout.plannedDurationMin && `${workout.plannedDurationMin} min`, workout.plannedDistanceKm && `${workout.plannedDistanceKm} km`].filter(Boolean).join(' • ') || 'Flexible')}</small></span>
     </button>
     <button type="button" aria-label={`Move ${workout.title}`} onClick={onMove} style={moveIconButtonStyle}>↔</button>
   </div>;
@@ -224,7 +232,7 @@ const workoutButtonStyle = { ...workoutCardStyle, width: '100%', textAlign: 'lef
 const remainingButtonStyle = { ...typography.body, display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.md, background: colors.neutral.surface, color: colors.neutral.text, boxShadow: 'none', cursor: 'pointer' } as const;
 const linkButton = { ...typography.button, color: colors.accent.sky, background: 'transparent', border: 0, padding: 0, textDecoration: 'underline', cursor: 'pointer' };
 
-function WorkoutDetailPanel({ workout, week, plannedDay, onMove, onComplete, onRemove }: { workout: GeneratedWorkout; week: GeneratedTrainingWeek; plannedDay?: string; onMove: () => void; onComplete: () => void; onRemove: () => void }) {
+function WorkoutDetailPanel({ workout, week, plannedDay, onMove, onComplete, onRemove }: { workout: ResolvedWorkout; week: GeneratedTrainingWeek; plannedDay?: string; onMove: () => void; onComplete: () => void; onRemove: () => void }) {
   const summary = [workout.plannedDistanceKm ? { label: 'Distance', value: `${workout.plannedDistanceKm} km` } : null, workout.plannedDurationMin ? { label: 'Duration', value: `${workout.plannedDurationMin} min` } : null, workout.intensity ? { label: 'Expected Effort', value: friendlyEffort(workout.intensity) } : null, hard(workout) ? { label: 'Session Load', value: 'Hard / focused' } : { label: 'Session Load', value: 'Easy / supportive' }, fuelPractice(workout) ? { label: 'Focus', value: 'Fuel practice' } : null, racePace(workout) ? { label: 'Pace', value: 'Race pace included' } : null].filter(Boolean) as Array<{ label: string; value: string }>;
   return <CardStack>
     <section style={detailHeroStyle} aria-labelledby="workout-detail-title">
@@ -236,6 +244,7 @@ function WorkoutDetailPanel({ workout, week, plannedDay, onMove, onComplete, onR
       <p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>{[plannedDay ? `Planned for ${plannedDay}` : workout.status === 'unplanned' ? 'Unscheduled — choose a day when useful' : null, `Week ${week.weekNumber}`, formatPhase(week.phase), workout.category === 'optional' ? 'Optional Support Session' : null].filter(Boolean).join(' • ')}</p>
     </section>
     <div style={summaryStripStyle}>{summary.map((item) => <div key={item.label}><p style={detailLabelStyle}>{item.label}</p><p style={detailValueStyle}>{item.value}</p></div>)}</div>
+    {workout.completion ? <CompletedReflection workout={workout} plannedDay={plannedDay} /> : null}
     {workout.purpose ? <CoachBlock title="Why this workout matters">{workout.purpose}</CoachBlock> : null}
     <section aria-labelledby="prescription-title" style={{ display: 'grid', gap: spacing.xs }}>
       <h4 id="prescription-title" style={{ ...typography.h3, margin: 0 }}>Workout Prescription</h4>
@@ -247,7 +256,7 @@ function WorkoutDetailPanel({ workout, week, plannedDay, onMove, onComplete, onR
     <ContextBlock workout={workout} week={week} />
     {workout.coachTip ? <CoachBlock title="Coach Tip">{workout.coachTip}</CoachBlock> : null}
     <div style={{ display: 'grid', gap: spacing.sm }}>
-      {workout.status === 'completed' ? <><Chip tone="green">Completed</Chip><SecondaryButton onClick={onComplete}>View or edit recorded details</SecondaryButton></> : <PrimaryButton onClick={onComplete}>Complete Workout</PrimaryButton>}
+      {workout.status === 'completed' ? <><Chip tone="green">Completed</Chip><SecondaryButton onClick={onComplete}>Edit Reflection</SecondaryButton></> : <PrimaryButton onClick={onComplete}>Complete Workout</PrimaryButton>}
       <SecondaryButton onClick={onMove}>Move to another day</SecondaryButton>
       <SecondaryButton onClick={onRemove}>Remove</SecondaryButton>
     </div>
@@ -261,7 +270,70 @@ function ContextBlock({ workout, week }: { workout: GeneratedWorkout; week: Gene
 function CoachBlock({ title, children }: { title: string; children: string }) { return <section style={coachBlockStyle}><h4 style={{ ...typography.caption, color: colors.neutral.muted, textTransform: 'uppercase', margin: 0 }}>{title}</h4><p style={{ ...typography.body, color: colors.neutral.text, margin: `${spacing.xs}px 0 0`, overflowWrap: 'anywhere' }}>{children}</p></section>; }
 function PrescriptionPart({ title, value, emphasis }: { title: string; value?: string; emphasis?: boolean }) { if (!value) return null; return <section style={{ ...prescriptionPartStyle, borderColor: emphasis ? colors.primary.green : colors.neutral.border, background: emphasis ? colors.primary.greenTint : colors.neutral.surface }}><h5 style={{ ...typography.caption, color: emphasis ? colors.primary.green : colors.neutral.muted, margin: 0, textTransform: 'uppercase' }}>{title}</h5><p style={{ ...typography.body, color: colors.neutral.text, fontWeight: emphasis ? 650 : 400, margin: `${spacing.xs}px 0 0`, overflowWrap: 'anywhere' }}>{value}</p></section>; }
 function PastDayPanel({ day, onComplete }: { day: { workouts: GeneratedWorkout[] }; onComplete: (workout: GeneratedWorkout) => void }) { return <CardStack><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Past days cannot receive new future assignments. Record what happened instead.</p>{day.workouts.length ? day.workouts.map((workout) => <WorkoutMini key={workout.id} workout={workout}><PrimaryButton onClick={() => onComplete(workout)}>Update past day</PrimaryButton></WorkoutMini>) : <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>No workout was planned for this day.</p>}</CardStack>; }
-function CompletePanel({ workout, onSave }: { workout: GeneratedWorkout; onSave: () => void }) { return <CardStack><WorkoutMini workout={workout} /><div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: spacing.xs }}>{['😫','🙁','😐','🙂','😁'].map((feel) => <button key={feel} type="button" style={{ minHeight: 44, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.button, background: colors.neutral.surface }}>{feel}</button>)}</div><TextArea placeholder="Add note" /><TextInput placeholder="Actual time" inputMode="numeric" /><TextInput placeholder="Actual distance" inputMode="decimal" /><PrimaryButton onClick={onSave}>Save</PrimaryButton></CardStack>; }
+const feelingOptions = [
+  { value: 1, label: 'Easier than expected' },
+  { value: 2, label: 'Comfortable' },
+  { value: 3, label: 'About right' },
+  { value: 4, label: 'Hard' },
+  { value: 5, label: 'Very hard' },
+] as const;
+function feelingLabel(value?: number) { return feelingOptions.find((option) => option.value === value)?.label; }
+function completionDistance(log?: CompletionLog) { return log?.actualDistanceKm ?? log?.distanceKm; }
+function completionDuration(log?: CompletionLog) { return log?.actualDurationMinutes ?? log?.durationMinutes; }
+function plannedSummary(workout: GeneratedWorkout) { return [workout.plannedDistanceKm ? `${workout.plannedDistanceKm} km` : null, workout.plannedDurationMin ? `${workout.plannedDurationMin} min` : null, workout.intensity ? friendlyEffort(workout.intensity) : null].filter(Boolean).join(' · ') || 'Flexible'; }
+function CompletedReflection({ workout, plannedDay }: { workout: ResolvedWorkout; plannedDay?: string }) {
+  const log = workout.completion;
+  if (!log) return null;
+  return <section style={completedBlockStyle} aria-labelledby="completed-reflection-title">
+    <Chip tone="green">Completed</Chip>
+    <h4 id="completed-reflection-title" style={{ ...typography.h3, margin: `${spacing.xs}px 0 0` }}>Your Reflection</h4>
+    <div style={summaryStripStyle}>
+      <div><p style={detailLabelStyle}>Actual Distance</p><p style={detailValueStyle}>{completionDistance(log) ? `${completionDistance(log)} km` : 'Not recorded'}</p></div>
+      <div><p style={detailLabelStyle}>Actual Duration</p><p style={detailValueStyle}>{completionDuration(log) ? `${completionDuration(log)} min` : 'Not recorded'}</p></div>
+      <div><p style={detailLabelStyle}>How it felt</p><p style={detailValueStyle}>{feelingLabel(log.perceivedEffort) ?? 'Not recorded'}</p></div>
+      <div><p style={detailLabelStyle}>Completed</p><p style={detailValueStyle}>{plannedDay ?? formatDate(log.completedAt.slice(0, 10))}</p></div>
+    </div>
+    {workout.moved && workout.suggestedDate && workout.assignedDay ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>Moved from {formatDate(workout.suggestedDate)} to {formatDate(workout.assignedDay)}.</p> : null}
+    {log.journalNote || log.notes ? <div><p style={detailLabelStyle}>Training Journal</p><p style={{ ...typography.body, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: `${spacing.xs}px 0 0` }}>{log.journalNote ?? log.notes}</p></div> : null}
+  </section>;
+}
+function CompletePanel({ workout, plannedDay, onViewPrescription, onSave }: { workout: ResolvedWorkout; plannedDay?: string; onViewPrescription: () => void; onSave: (details: { actualDistanceKm?: number; actualDurationMinutes?: number; perceivedEffort?: number; journalNote?: string }) => void }) {
+  const existing = workout.completion;
+  const [distance, setDistance] = useState(completionDistance(existing)?.toString() ?? '');
+  const [duration, setDuration] = useState(completionDuration(existing)?.toString() ?? '');
+  const [effort, setEffort] = useState<number | undefined>(existing?.perceivedEffort);
+  const [journalNote, setJournalNote] = useState(existing?.journalNote ?? existing?.notes ?? '');
+  const [saving, setSaving] = useState(false);
+  function save() {
+    if (saving) return;
+    setSaving(true);
+    onSave({ actualDistanceKm: distance.trim() ? Number(distance) : undefined, actualDurationMinutes: duration.trim() ? Number(duration) : undefined, perceivedEffort: effort, journalNote: journalNote.trim().slice(0, 1000) || undefined });
+  }
+  return <CardStack>
+    <section style={plannedContextStyle} aria-labelledby="completion-title">
+      <p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0, textTransform: 'uppercase' }}>{plannedDay ?? 'Planned workout'}</p>
+      <h3 id="completion-title" style={{ ...typography.h3, margin: `${spacing.xxs}px 0 0`, overflowWrap: 'anywhere' }}>{workout.title}</h3>
+      <p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>Planned: {plannedSummary(workout)} · {roleLabel(workout).replace(/[🏁⭐🟣🟢💙⚪]/g, '').trim()}</p>
+      <button type="button" onClick={onViewPrescription} style={linkButton}>View full prescription</button>
+    </section>
+    <section style={{ display: 'grid', gap: spacing.xs }} aria-labelledby="actual-details-title">
+      <h4 id="actual-details-title" style={{ ...typography.h3, margin: 0 }}>Completed workout details</h4>
+      <TextInput aria-label="Actual distance in kilometres" placeholder="Actual distance (km)" inputMode="decimal" value={distance} onChange={(event) => setDistance(event.target.value)} />
+      <TextInput aria-label="Actual duration in minutes" placeholder="Actual duration (min)" inputMode="numeric" value={duration} onChange={(event) => setDuration(event.target.value)} />
+    </section>
+    <section style={{ display: 'grid', gap: spacing.xs }} aria-labelledby="felt-title">
+      <h4 id="felt-title" style={{ ...typography.h3, margin: 0 }}>How did it feel?</h4>
+      <div style={feelingGridStyle}>{feelingOptions.map((option) => <button key={option.value} type="button" aria-pressed={effort === option.value} onClick={() => setEffort(option.value)} style={{ ...feelingButtonStyle, borderColor: effort === option.value ? colors.primary.green : colors.neutral.border, background: effort === option.value ? colors.primary.greenTint : colors.neutral.surface }}><span>{option.label}</span>{effort === option.value ? <strong>Selected</strong> : null}</button>)}</div>
+    </section>
+    <section style={{ display: 'grid', gap: spacing.xs }}>
+      <label htmlFor="training-journal" style={{ ...typography.h3, margin: 0 }}>Training Journal</label>
+      <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Record anything you may want to remember later.</p>
+      <textarea id="training-journal" maxLength={1000} value={journalNote} onChange={(event) => setJournalNote(event.target.value)} placeholder="Legs felt heavy, heart rate was higher than usual, but the final kilometre felt better." style={journalTextAreaStyle} />
+      <p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>{journalNote.length}/1000</p>
+    </section>
+    <PrimaryButton onClick={save} disabled={saving}>{workout.completion ? 'Save Reflection' : 'Save & Complete Workout'}</PrimaryButton>
+  </CardStack>;
+}
 
 
 const detailHeroStyle = { border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.sm, background: colors.neutral.surface } as const;
@@ -271,3 +343,8 @@ const detailValueStyle = { ...typography.small, color: colors.neutral.text, marg
 const coachBlockStyle = { borderLeft: `3px solid ${colors.primary.green}`, padding: `${spacing.xs}px 0 ${spacing.xs}px ${spacing.sm}`, background: colors.neutral.surface } as const;
 const prescriptionPartStyle = { border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.sm } as const;
 const contextStyle = { display: 'grid', gap: spacing.xs, border: `1px solid ${colors.accent.sky}`, borderRadius: radius.card, padding: spacing.sm, background: colors.accent.skyTint } as const;
+const plannedContextStyle = { border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.sm, background: colors.neutral.surface } as const;
+const completedBlockStyle = { display: 'grid', gap: spacing.sm, border: `1px solid ${colors.primary.green}`, borderRadius: radius.card, padding: spacing.sm, background: colors.primary.greenTint } as const;
+const feelingGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))', gap: spacing.xs } as const;
+const feelingButtonStyle = { ...typography.small, display: 'grid', gap: 2, alignContent: 'center', minHeight: 52, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.button, padding: spacing.xs, background: colors.neutral.surface, color: colors.neutral.text, cursor: 'pointer' } as const;
+const journalTextAreaStyle = { ...typography.body, width: '100%', minHeight: 112, maxHeight: 220, boxSizing: 'border-box' as const, resize: 'vertical' as const, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, padding: spacing.md, color: colors.neutral.text, background: colors.neutral.surface, overflowWrap: 'anywhere' as const } as const;
