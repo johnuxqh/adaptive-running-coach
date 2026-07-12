@@ -141,8 +141,51 @@ function runValidationAssertions(cases: CaseRecord[]) {
   assert(health.some((row) => row.raceWeekPresent && row.taperPresent && (!row.longRunTargetMet || !row.weeklyVolumeTargetMet) && (row.engineGrade === 'C' || row.engineGrade === 'B')), 'structurally sound constrained plans may receive C/B');
   const lauren = health.filter((row) => row.caseId === 'CASE-181' || row.caseId === 'CASE-182');
   assert(lauren.every((row) => row.runwayClassification !== 'SHORT' && !row.warnings.includes('Race day is close')), 'Lauren-style marathon runway must not be labelled race day is close');
+  const laurenPb = cases.find((item) => item.input.athleteName === 'Lauren PB Marathon');
+  const laurenCompetitive = cases.find((item) => item.input.athleteName === 'Lauren Competitive Marathon');
+  if (!laurenPb || !laurenCompetitive) throw new Error('Lauren marathon validation cases must exist');
+  assert(validateFinalMarathonTaper(laurenPb.plan, 30).valid, 'Lauren PB Marathon must keep a 30km+ peak and progressive final taper');
+  assert(validateFinalMarathonTaper(laurenCompetitive.plan, 32).valid, 'Lauren Competitive Marathon must keep a 32km+ peak and progressive final taper');
+  const duplicateTaperPlan = clonePlanWithDuplicateTaper(laurenPb.plan);
+  assert(!validateFinalMarathonTaper(duplicateTaperPlan, 30).valid, 'duplicated or non-reducing taper must fail validation');
   assert(health.some((row) => row.maxRecoveryBouncePercent > 18 && row.maxBuildToBuildIncreasePercent <= 12 && !row.issues.includes('recovery rebound')), 'recovery bounce alone must not create unsafe-build issue');
   assert(health.some((row) => row.maxBuildToBuildIncreasePercent > 12 && row.issues.includes('build-to-build increase')), 'unsafe build-to-build increases must warn');
+}
+
+
+function validateFinalMarathonTaper(plan: GeneratedTrainingPlan, minimumPeakLongRunKm: number): { valid: boolean; reason?: string } {
+  const raceWeek = plan.weeks.at(-1);
+  const taperWeeks = plan.weeks.filter((week) => week.phase === 'taper');
+  const peakWeek = [...plan.weeks].reverse().find((week) => week.phase === 'peak');
+  if (!raceWeek || raceWeek.weekType !== 'race') return { valid: false, reason: 'missing race week' };
+  if (!peakWeek || taperWeeks.length < 2) return { valid: false, reason: 'missing final peak or taper' };
+  const peakLongRun = max(plan.weeks.flatMap((week) => week.foundationWorkouts.map((workout) => workout.type === 'long_run' ? workout.plannedDistanceKm ?? 0 : 0)));
+  if (peakLongRun < minimumPeakLongRunKm) return { valid: false, reason: 'peak long run below destination minimum' };
+  const taperLoads = taperWeeks.map(trainingLoadKm);
+  const taperLongRuns = taperWeeks.map(longRunKm);
+  if (!(trainingLoadKm(peakWeek) > taperLoads[0])) return { valid: false, reason: 'first taper does not reduce from peak' };
+  for (let index = 1; index < taperLoads.length; index += 1) {
+    if (!(taperLoads[index] < taperLoads[index - 1])) return { valid: false, reason: 'taper load is not progressive' };
+    if (!(taperLongRuns[index] < taperLongRuns[index - 1])) return { valid: false, reason: 'taper long run is not progressive' };
+    if (taperSignature(taperWeeks[index]) === taperSignature(taperWeeks[index - 1])) return { valid: false, reason: 'duplicate taper weeks' };
+  }
+  if (!(taperLongRuns[0] < longRunKm(peakWeek))) return { valid: false, reason: 'first taper long run does not reduce from peak' };
+  if (!(raceWeekTrainingLoadKm(raceWeek) < taperLoads.at(-1)!)) return { valid: false, reason: 'race week training load rebounds' };
+  return { valid: true };
+}
+
+function trainingLoadKm(week: GeneratedTrainingWeek): number { return week.targetDistanceRangeKm.max; }
+function raceWeekTrainingLoadKm(week: GeneratedTrainingWeek): number { return sum(week.foundationWorkouts.filter((workout) => workout.type !== 'race').map((workout) => workout.plannedDistanceKm ?? 0)); }
+function longRunKm(week: GeneratedTrainingWeek): number { return week.foundationWorkouts.find((workout) => workout.type === 'long_run')?.plannedDistanceKm ?? 0; }
+function taperSignature(week: GeneratedTrainingWeek): string {
+  const quality = week.foundationWorkouts.find((workout) => workout.type === 'quality_session');
+  return [week.targetDistanceRangeKm.max, longRunKm(week), quality?.title ?? '', quality?.plannedDistanceKm ?? 0].join('|');
+}
+function clonePlanWithDuplicateTaper(plan: GeneratedTrainingPlan): GeneratedTrainingPlan {
+  const clone = JSON.parse(JSON.stringify(plan)) as GeneratedTrainingPlan;
+  const taperIndexes = clone.weeks.map((week, index) => week.phase === 'taper' ? index : -1).filter((index) => index >= 0);
+  if (taperIndexes.length >= 2) clone.weeks[taperIndexes[1]] = { ...JSON.parse(JSON.stringify(clone.weeks[taperIndexes[0]])), id: clone.weeks[taperIndexes[1]].id, weekNumber: clone.weeks[taperIndexes[1]].weekNumber };
+  return clone;
 }
 
 function assert(condition: boolean, message: string) { if (!condition) throw new Error(message); }
@@ -187,6 +230,7 @@ function workoutRow(caseId: string, input: PlanGeneratorInput, week: GeneratedTr
 function writeCsv(fileName: string, rows: string[][]) { writeFileSync(path.join(outputDir, fileName), rows.map((row) => row.map(csvEscape).join(',')).join('\n')); }
 function csvEscape(value: string) { return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value; }
 function max(values: number[]) { return values.length ? Math.max(...values) : 0; }
+function sum(values: number[]) { return values.reduce((total, value) => total + value, 0); }
 function addDays(isoDate: string, days: number) { const date = new Date(`${isoDate}T00:00:00.000Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
 
 main();
