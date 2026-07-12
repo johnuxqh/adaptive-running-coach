@@ -1,4 +1,4 @@
-import { appendCompactDurationLabel, buildSuggestedPlanner, resolveWeek, suggestedDateForWorkout } from '../src/utils/planning';
+import { appendCompactDurationLabel, buildHistoricalWeekSummary, buildSuggestedPlanner, resolveWeek, suggestedDateForWorkout } from '../src/utils/planning';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout } from '../src/engine/planTypes';
 
 function assert(condition: unknown, message: string) { if (!condition) throw new Error(message); }
@@ -56,3 +56,12 @@ assert(resolvedRaceWeek.workouts.find((workout) => workout.id === race.id)?.stat
 
 assert(appendCompactDurationLabel('Recovery Jog 21 min', 21) === 'Recovery Jog 21 min', 'compact label should not duplicate an existing duration');
 assert(appendCompactDurationLabel('Threshold Intervals', 48) === 'Threshold Intervals · 48 min', 'compact label should add a missing duration');
+
+const archivedLogs = [{ id: 'log-easy', workoutId: easy.id, completedAt: '2026-07-14T12:00:00.000Z', status: 'completed' as const, actualDistanceKm: 4.9, actualDurationMinutes: 32, perceivedEffort: 4, journalNote: 'Work stress was high.' }];
+const historical = buildHistoricalWeekSummary(week, resolveWeek(week, validMove, archivedLogs).workouts, { weekNumber: 2, archived: true, completedAt: '2026-07-20T08:00:00.000Z', weeklyReflection: 'Sunday helped.', metrics: { plannedWorkouts: 6, completedWorkouts: 5, actualDistanceKm: 42.8, actualDurationMinutes: 252 } });
+assert(historical.metrics.plannedWorkouts === 6 && historical.metrics.completedWorkouts === 5, 'archived stored completion metrics should be preferred when available');
+assert(historical.storyWorkouts.some((workout) => workout.id === race.id && !workout.completion), 'incomplete archived workouts should remain visible in the story');
+assert(historical.storyWorkouts.some((workout) => workout.completion?.perceivedEffort === 4 && workout.completion.journalNote === 'Work stress was high.'), 'workout effort and journal note should remain attached to historical story items');
+assert(historical.coachSummary.some((line) => line.includes('weekly reflection')), 'coach summary should acknowledge a saved weekly reflection without interpreting it');
+const olderHistorical = buildHistoricalWeekSummary(week, resolveWeek(week, validMove, []).workouts, { weekNumber: 2, archived: true, completedAt: '2026-07-20T08:00:00.000Z' });
+assert(olderHistorical.metrics.plannedWorkouts === 2 && olderHistorical.metrics.completedWorkouts === 0, 'older archived records without metrics should derive safe counts');
