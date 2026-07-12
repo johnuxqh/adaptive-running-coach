@@ -5,6 +5,8 @@ import type { WorkoutLog } from '../engine/types';
 export type PlannerState = { assignments: Record<string, string>; extraWorkouts: GeneratedWorkout[] };
 export const emptyPlanner: PlannerState = { assignments: {}, extraWorkouts: [] };
 export type CompletionLog = WorkoutLog & { feeling?: string; actualDistanceKm?: number; actualDurationMinutes?: number; journalNote?: string; raceFinishTime?: string; weekNumber?: number; status?: 'completed' };
+export type WeeklyCompletionRecord = { weekNumber: number; archived: boolean; completedAt: string; weeklyReflection?: string; metrics?: { plannedWorkouts: number; completedWorkouts: number; plannedDistanceKm?: number; actualDistanceKm?: number; actualDurationMinutes?: number } };
+
 export type ResolvedWorkout = GeneratedWorkout & { assignedDay?: string; suggestedDate?: string; moved: boolean; isRemoved: boolean; isExtra: boolean; completion?: CompletionLog; status: 'unplanned' | 'planned' | 'completed' | 'skipped' };
 export type ResolvedWeek = { week: GeneratedTrainingWeek; workouts: ResolvedWorkout[]; progress: WeekProgress };
 export type WeekProgress = { foundationPlanned: number; foundationCompleted: number; optionalPlanned: number; optionalCompleted: number; extraCompleted: number; actualKm: number; actualMinutes: number; completedWorkoutIds: string[]; missedFoundationWorkoutIds: string[]; missedOptionalWorkoutIds: string[] };
@@ -28,6 +30,27 @@ export function normalizeWorkoutLogs(logs: CompletionLog[] | null | undefined): 
 
 export function upsertWorkoutLog(logs: CompletionLog[], next: CompletionLog): CompletionLog[] {
   return [...normalizeWorkoutLogs(logs).filter((log) => log.workoutId !== next.workoutId), next];
+}
+
+export function normalizeWeeklyCompletionRecords(records: WeeklyCompletionRecord[] | null | undefined): WeeklyCompletionRecord[] {
+  const latest = new Map<number, WeeklyCompletionRecord>();
+  for (const record of Array.isArray(records) ? records : []) {
+    if (!record || typeof record.weekNumber !== 'number') continue;
+    const normalized: WeeklyCompletionRecord = {
+      weekNumber: record.weekNumber,
+      archived: Boolean(record.archived),
+      completedAt: typeof record.completedAt === 'string' ? record.completedAt : '',
+      weeklyReflection: typeof record.weeklyReflection === 'string' ? record.weeklyReflection : undefined,
+      metrics: record.metrics,
+    };
+    const current = latest.get(record.weekNumber);
+    if (!current || normalized.completedAt.localeCompare(current.completedAt) >= 0) latest.set(record.weekNumber, normalized);
+  }
+  return [...latest.values()];
+}
+
+export function upsertWeeklyCompletionRecord(records: WeeklyCompletionRecord[], next: WeeklyCompletionRecord): WeeklyCompletionRecord[] {
+  return [...normalizeWeeklyCompletionRecords(records).filter((record) => record.weekNumber !== next.weekNumber), next];
 }
 
 export function buildSuggestedPlanner(plan: GeneratedTrainingPlan, existing: PlannerState = emptyPlanner): PlannerState {
