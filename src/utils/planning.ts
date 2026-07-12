@@ -5,11 +5,12 @@ import type { WorkoutLog } from '../engine/types';
 export type PlannerState = { assignments: Record<string, string>; extraWorkouts: GeneratedWorkout[] };
 export const emptyPlanner: PlannerState = { assignments: {}, extraWorkouts: [] };
 export type CompletionLog = WorkoutLog & { feeling?: string; actualDistanceKm?: number; actualDurationMinutes?: number; journalNote?: string; raceFinishTime?: string; weekNumber?: number; status?: 'completed' };
-export type WeeklyCompletionRecord = { weekNumber: number; archived: boolean; completedAt: string; weeklyReflection?: string; metrics?: { plannedWorkouts: number; completedWorkouts: number; plannedDistanceKm?: number; actualDistanceKm?: number; actualDurationMinutes?: number } };
+export type WeeklyCompletionRecord = { weekNumber: number; archived: boolean; completedAt: string; weeklyReflection?: string; metrics?: { plannedWorkouts: number; completedWorkouts: number; plannedDistanceKm?: number; plannedDurationMinutes?: number; actualDistanceKm?: number; actualDurationMinutes?: number } };
 
 export type ResolvedWorkout = GeneratedWorkout & { assignedDay?: string; suggestedDate?: string; moved: boolean; isRemoved: boolean; isExtra: boolean; completion?: CompletionLog; status: 'unplanned' | 'planned' | 'completed' | 'skipped' };
 export type ResolvedWeek = { week: GeneratedTrainingWeek; workouts: ResolvedWorkout[]; progress: WeekProgress };
 export type WeekProgress = { foundationPlanned: number; foundationCompleted: number; optionalPlanned: number; optionalCompleted: number; extraCompleted: number; actualKm: number; actualMinutes: number; completedWorkoutIds: string[]; missedFoundationWorkoutIds: string[]; missedOptionalWorkoutIds: string[] };
+export type HistoricalWeekSummary = { metrics: NonNullable<WeeklyCompletionRecord['metrics']>; completionPercent?: number; keyWorkout?: ResolvedWorkout; longestCompletedRun?: ResolvedWorkout; plannedWorkouts: ResolvedWorkout[]; completedWorkouts: ResolvedWorkout[]; storyWorkouts: ResolvedWorkout[]; coachSummary: string[] };
 const dayIndex: Record<string, number> = { Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4, Saturday: 5, Sunday: 6, Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
 
 export function normalizePlannerState(value: Partial<PlannerState> | null | undefined): PlannerState {
@@ -109,3 +110,37 @@ export function getResolvedWeekProgress(workouts: ResolvedWorkout[]): WeekProgre
   const actualMinutes = completed.reduce((sum, w) => sum + (w.completion?.actualDurationMinutes ?? w.completion?.durationMinutes ?? 0), 0);
   return { foundationPlanned: planned.filter((w) => w.category === 'foundation').length, foundationCompleted: completed.filter((w) => w.category === 'foundation').length, optionalPlanned: planned.filter((w) => w.category === 'optional').length, optionalCompleted: completed.filter((w) => w.category === 'optional').length, extraCompleted: completed.filter((w) => w.category === 'extra').length, actualKm: Math.round(actualKm * 10) / 10, actualMinutes: Math.round(actualMinutes), completedWorkoutIds: completed.map((w) => w.id), missedFoundationWorkoutIds: planned.filter((w) => w.category === 'foundation' && !w.completion).map((w) => w.id), missedOptionalWorkoutIds: planned.filter((w) => w.category === 'optional' && !w.completion).map((w) => w.id) };
 }
+
+export function completionDistance(log?: CompletionLog) { return log?.actualDistanceKm ?? log?.distanceKm; }
+export function completionDuration(log?: CompletionLog) { return log?.actualDurationMinutes ?? log?.durationMinutes; }
+
+export function buildHistoricalWeekSummary(week: GeneratedTrainingWeek, workouts: ResolvedWorkout[], archivedRecord?: WeeklyCompletionRecord, nextWeek?: GeneratedTrainingWeek): HistoricalWeekSummary {
+  const plannedWorkouts = workouts.filter((workout) => !workout.isRemoved);
+  const completedWorkouts = plannedWorkouts.filter((workout) => workout.completion);
+  const derivedMetrics = buildDerivedHistoricalMetrics(plannedWorkouts, completedWorkouts);
+  const metrics = { ...derivedMetrics, ...archivedRecord?.metrics };
+  const completionPercent = metrics.plannedWorkouts ? Math.round((metrics.completedWorkouts / metrics.plannedWorkouts) * 100) : undefined;
+  const keyWorkout = plannedWorkouts.find((w) => w.type === 'race') ?? plannedWorkouts.find((w) => w.type === 'quality_session') ?? plannedWorkouts.find((w) => w.type === 'long_run');
+  const longestCompletedRun = completedWorkouts.filter((workout) => completionDistance(workout.completion)).sort((a, b) => (completionDistance(b.completion) ?? 0) - (completionDistance(a.completion) ?? 0))[0];
+  const storyWorkouts = [...plannedWorkouts].sort((a, b) => (a.assignedDay ?? '9999-99-99').localeCompare(b.assignedDay ?? '9999-99-99'));
+  const coachSummary = [
+    `You completed ${metrics.completedWorkouts} of ${metrics.plannedWorkouts} planned sessions this week.`,
+    missedCount(metrics) > 0 ? `${missedCount(metrics)} planned session${missedCount(metrics) === 1 ? '' : 's'} remained incomplete.` : '',
+    keyWorkout?.completion && longestCompletedRun ? 'Your key session and longest completed run were recorded.' : keyWorkout?.completion ? 'Your key session was completed.' : keyWorkout ? 'Your key session remained incomplete.' : '',
+    week.weekType === 'recovery' ? 'This was a recovery week, so reduced volume was intentional.' : week.phase === 'taper' ? 'This week reduced fatigue while maintaining rhythm.' : week.weekType === 'race' ? 'Your goal race was the primary session.' : keyWorkout?.type === 'race' ? `${keyWorkout.title} was the primary training demand this week.` : '',
+    archivedRecord?.weeklyReflection ? 'A weekly reflection was saved with this record.' : '',
+    nextWeek ? `The next generated phase was ${formatPhaseForSummary(nextWeek.phase)}.` : '',
+  ].filter(Boolean);
+  return { metrics, completionPercent, keyWorkout, longestCompletedRun, plannedWorkouts, completedWorkouts, storyWorkouts, coachSummary };
+}
+
+function buildDerivedHistoricalMetrics(planned: ResolvedWorkout[], completed: ResolvedWorkout[]): NonNullable<WeeklyCompletionRecord['metrics']> {
+  const plannedDistanceKm = planned.reduce((sum, workout) => sum + (workout.plannedDistanceKm ?? 0), 0);
+  const plannedDurationMinutes = planned.reduce((sum, workout) => sum + (workout.plannedDurationMin ?? 0), 0);
+  const actualDistanceKm = completed.reduce((sum, workout) => sum + (completionDistance(workout.completion) ?? 0), 0);
+  const actualDurationMinutes = completed.reduce((sum, workout) => sum + (completionDuration(workout.completion) ?? 0), 0);
+  return { plannedWorkouts: planned.length, completedWorkouts: completed.length, plannedDistanceKm: roundOne(plannedDistanceKm), plannedDurationMinutes: Math.round(plannedDurationMinutes) || undefined, actualDistanceKm: roundOne(actualDistanceKm), actualDurationMinutes: Math.round(actualDurationMinutes) || undefined };
+}
+function roundOne(value: number) { return Math.round(value * 10) / 10 || undefined; }
+function missedCount(metrics: NonNullable<WeeklyCompletionRecord['metrics']>) { return Math.max(0, metrics.plannedWorkouts - metrics.completedWorkouts); }
+function formatPhaseForSummary(phase: string) { return phase.replace('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()).toLowerCase(); }
