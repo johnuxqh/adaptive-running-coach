@@ -30,8 +30,10 @@ export function WeekPlannerPage() {
   const [searchParams] = useSearchParams();
   const plan = readStorageValue<GeneratedTrainingPlan | null>(storageKeys.plan, null);
   const storedWeek = readStorageValue<GeneratedTrainingWeek | null>(storageKeys.currentWeek, null);
-  const requestedWeek = Number(searchParams.get('week'));
-  const currentWeek = (requestedWeek && plan?.weeks.find((week) => week.weekNumber === requestedWeek)) ?? storedWeek ?? plan?.weeks[0] ?? null;
+  const requestedWeek = parseRequestedWeek(searchParams.get('week'));
+  const requestedTrainingWeek = requestedWeek ? plan?.weeks.find((week) => week.weekNumber === requestedWeek) ?? null : null;
+  const storedTrainingWeek = storedWeek ? plan?.weeks.find((week) => week.weekNumber === storedWeek.weekNumber) ?? null : null;
+  const currentWeek = requestedTrainingWeek ?? storedTrainingWeek ?? plan?.weeks[0] ?? null;
   const [planner, setPlanner] = useState<PlannerState>(() => plan ? buildSuggestedPlanner(plan, readPlanner()) : readPlanner());
   const [panel, setPanel] = useState<PanelMode>(null);
   const [extraTitle, setExtraTitle] = useState('');
@@ -166,6 +168,7 @@ export function WeekPlannerPage() {
 }
 
 function readPlanner(): PlannerState { return readStorageValue<PlannerState>(plannerKey, emptyPlanner); }
+function parseRequestedWeek(value: string | null) { const parsed = value ? Number(value) : NaN; return Number.isInteger(parsed) && parsed > 0 ? parsed : null; }
 function formatPhase(phase: TrainingPhase) { return phase.replace('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 function formatWeekType(type: WeekType) { return `${type[0].toUpperCase()}${type.slice(1)} week`; }
 function formatDate(date: string) { return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(parseIsoDate(date)); }
