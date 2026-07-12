@@ -72,10 +72,30 @@ export function isAssignmentValidForWeek(date: string | undefined, week: Generat
 }
 
 export function suggestedDateForWorkout(week: GeneratedTrainingWeek, workout: GeneratedWorkout): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(workout.suggestedDay)) return workout.suggestedDay;
+  const isoSuggestedDay = /^\d{4}-\d{2}-\d{2}$/.test(workout.suggestedDay) ? workout.suggestedDay : undefined;
+  const isoWeekday = isoSuggestedDay ? weekdayIndexFromIsoDate(isoSuggestedDay) : undefined;
   const label = workout.suggestedDay.split(/\s+or\s+|,|\//)[0].trim();
   const key = Object.keys(dayIndex).find((day) => label.startsWith(day));
-  return toIsoDate(addDays(parseIsoDate(week.startsOn), key ? dayIndex[key] : 5));
+  const intendedDayIndex = isoWeekday ?? (key ? dayIndex[key] : 5);
+  const suggestedDate = isoSuggestedDay && isAssignmentValidForWeek(isoSuggestedDay, week) ? isoSuggestedDay : toIsoDate(addDays(parseIsoDate(week.startsOn), intendedDayIndex));
+  return isAssignmentValidForWeek(suggestedDate, week) ? suggestedDate : deterministicInWeekFallback(week);
+}
+
+function weekdayIndexFromIsoDate(date: string): number | undefined {
+  try {
+    const parsed = parseIsoDate(date);
+    if (toIsoDate(parsed) !== date) return undefined;
+    const day = parsed.getUTCDay();
+    return day === 0 ? 6 : day - 1;
+  } catch {
+    return undefined;
+  }
+}
+
+function deterministicInWeekFallback(week: GeneratedTrainingWeek): string {
+  const saturday = toIsoDate(addDays(parseIsoDate(week.startsOn), 5));
+  if (isAssignmentValidForWeek(saturday, week)) return saturday;
+  return isAssignmentValidForWeek(week.endsOn, week) ? week.endsOn : week.startsOn;
 }
 
 export function workoutsForWeek(week: GeneratedTrainingWeek, planner: PlannerState): GeneratedWorkout[] { return resolveWeek(week, planner, []).workouts; }
