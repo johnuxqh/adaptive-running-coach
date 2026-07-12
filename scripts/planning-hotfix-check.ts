@@ -1,4 +1,4 @@
-import { appendCompactDurationLabel, buildHistoricalWeekSummary, buildSuggestedPlanner, resolveWeek, suggestedDateForWorkout } from '../src/utils/planning';
+import { appendCompactDurationLabel, buildHistoricalWeekSummary, buildSuggestedPlanner, isAssignmentValidForWeek, resolveWeek, suggestedDateForWorkout } from '../src/utils/planning';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout } from '../src/engine/planTypes';
 
 function assert(condition: unknown, message: string) { if (!condition) throw new Error(message); }
@@ -23,6 +23,10 @@ const makeWorkout = (id: string, suggestedDay: string, overrides: Partial<Genera
 
 const race = makeWorkout('race-week-2', 'Sunday', { title: 'Half Marathon Tune-Up', type: 'race', plannedDistanceKm: 21.1, plannedDurationMin: undefined });
 const easy = makeWorkout('easy-week-2', 'Tuesday');
+const validIso = makeWorkout('valid-iso-week-2', '2026-07-15');
+const staleIsoSunday = makeWorkout('stale-sunday-week-2', '2026-07-12');
+const staleIsoSaturday = makeWorkout('stale-saturday-week-2', '2026-07-11');
+const malformed = makeWorkout('malformed-week-2', '2026-02-30');
 const week: GeneratedTrainingWeek = {
   id: 'week-2',
   weekNumber: 2,
@@ -39,6 +43,15 @@ const week: GeneratedTrainingWeek = {
 };
 const plan: GeneratedTrainingPlan = { id: 'plan', inputs: {} as GeneratedTrainingPlan['inputs'], weeksFromNowToRaceWeek: 2, weeks: [week], summary: {} as GeneratedTrainingPlan['summary'], warnings: [] };
 
+assert(suggestedDateForWorkout(week, validIso) === '2026-07-15', 'valid in-week ISO suggested date should remain unchanged');
+assert(suggestedDateForWorkout(week, staleIsoSunday) === '2026-07-19', 'out-of-week ISO Sunday should map to Sunday inside the generated week');
+assert(suggestedDateForWorkout(week, staleIsoSaturday) === '2026-07-18', 'out-of-week ISO Saturday should map to Saturday inside the generated week');
+assert(suggestedDateForWorkout(week, race) === '2026-07-19', 'named weekday should map inside the generated week');
+assert(isAssignmentValidForWeek(suggestedDateForWorkout(week, malformed), week), 'malformed suggested values should resolve to a valid in-week fallback');
+for (const workout of [validIso, staleIsoSunday, staleIsoSaturday, race, malformed]) {
+  assert(isAssignmentValidForWeek(suggestedDateForWorkout(week, workout), week), `${workout.id} suggested date should be valid for the generated week`);
+}
+
 const validMove = buildSuggestedPlanner(plan, { assignments: { [race.id]: '2026-07-18', [easy.id]: '2026-07-14' }, extraWorkouts: [] });
 assert(validMove.assignments[race.id] === '2026-07-18', 'valid athlete move inside the week should be preserved');
 assert(validMove.assignments[easy.id] === '2026-07-14', 'valid assignment inside the week should be preserved');
@@ -50,9 +63,18 @@ for (const stale of ['2026-07-12', '2026-07-20', 'not-a-date']) {
 
 const repairedRacePlanner = buildSuggestedPlanner(plan, { assignments: { [race.id]: '2026-07-12', [easy.id]: '2026-07-14' }, extraWorkouts: [] });
 const resolvedRaceWeek = resolveWeek(week, repairedRacePlanner, []);
+const resolvedRace = resolvedRaceWeek.workouts.find((workout) => workout.id === race.id);
 const raceInstances = resolvedRaceWeek.workouts.filter((workout) => workout.type === 'race' && workout.assignedDay === '2026-07-19');
 assert(raceInstances.length === 1, 'intermediate race should appear exactly once on the suggested in-week date');
-assert(resolvedRaceWeek.workouts.find((workout) => workout.id === race.id)?.status === 'planned', 'intermediate race should not disappear as Rest/unplanned');
+assert(resolvedRace?.status === 'planned', 'intermediate race should not disappear as Rest/unplanned');
+assert(resolvedRace?.assignedDay === repairedRacePlanner.assignments[race.id], 'resolved assignment should match repaired planner assignment');
+assert(resolvedRaceWeek.workouts.filter((workout) => workout.assignedDay === '2026-07-19').some((workout) => workout.id === race.id), 'resolved grouping should place the race on Sunday');
+assert(resolvedRaceWeek.workouts.filter((workout) => workout.assignedDay === '2026-07-12').length === 0, 'resolved grouping should not use stale raw out-of-week dates');
+
+const saturdayMovePlanner = buildSuggestedPlanner(plan, { assignments: { [race.id]: '2026-07-18', [easy.id]: '2026-07-14' }, extraWorkouts: [] });
+const saturdayMoveRace = resolveWeek(week, saturdayMovePlanner, []).workouts.find((workout) => workout.id === race.id);
+assert(saturdayMoveRace?.assignedDay === '2026-07-18', 'valid athlete move to Saturday should remain unchanged');
+assert(saturdayMovePlanner.assignments[race.id] === '2026-07-18', 'refresh repair should preserve a valid Saturday athlete move');
 
 assert(appendCompactDurationLabel('Recovery Jog 21 min', 21) === 'Recovery Jog 21 min', 'compact label should not duplicate an existing duration');
 assert(appendCompactDurationLabel('Threshold Intervals', 48) === 'Threshold Intervals · 48 min', 'compact label should add a missing duration');

@@ -47,8 +47,8 @@ export function WeekPlannerPage() {
   const resolvedWeek = useMemo(() => currentWeek ? resolveWeek(currentWeek, planner, logs) : null, [currentWeek, planner, logs]);
   const workouts = resolvedWeek?.workouts ?? [];
   const days = useMemo(() => currentWeek ? dayNames.map((name, index) => ({ name, date: toIsoDate(addDays(parseIsoDate(currentWeek.startsOn), index)) })) : [], [currentWeek]);
-  const assignedByDay = days.map((day) => ({ ...day, workouts: workouts.filter((workout) => planner.assignments[workout.id] === day.date) }));
-  const remaining = workouts.filter((workout) => !planner.assignments[workout.id]);
+  const assignedByDay = days.map((day) => ({ ...day, workouts: workouts.filter((workout) => workout.assignedDay === day.date) }));
+  const remaining = workouts.filter((workout) => !workout.assignedDay);
   const todayIso = toIsoDate(new Date());
   const today = assignedByDay.find((day) => day.date === todayIso);
   const warnings = buildWarnings(assignedByDay);
@@ -113,8 +113,8 @@ export function WeekPlannerPage() {
 
   if (!currentWeek) return <PageStack><HeroTitle eyebrow="Plan Week" title="No plan found">Create a plan first, then come back to organise your week.</HeroTitle></PageStack>;
 
-  const foundationDone = currentWeek.foundationWorkouts.filter((workout) => planner.assignments[workout.id]).length;
-  const optionalDone = currentWeek.optionalWorkouts.filter((workout) => planner.assignments[workout.id]).length;
+  const foundationDone = workouts.filter((workout) => workout.category === 'foundation' && workout.assignedDay).length;
+  const optionalDone = workouts.filter((workout) => workout.category === 'optional' && workout.assignedDay).length;
 
   const activeDay = panel && ('date' in panel) ? assignedByDay.find((day) => day.date === panel.date) : null;
   const activeWorkout = panel && ('workoutId' in panel) ? workouts.find((workout) => workout.id === panel.workoutId) : null;
@@ -159,8 +159,8 @@ export function WeekPlannerPage() {
       {panel?.kind === 'past' && activeDay ? <PastDayPanel day={activeDay} onComplete={(workout) => setPanel({ kind: 'complete', workoutId: workout.id, date: activeDay.date })} /> : null}
       {panel?.kind === 'chooseForDay' && activeDay ? <ChooseForDayPanel day={activeDay} remaining={remaining} onAssign={(workout) => assign(workout.id, activeDay.date)} onOpenRemaining={() => setPanel({ kind: 'remaining' })} /> : null}
       {panel?.kind === 'day' && activeDay ? <PlannedDayPanel day={activeDay} onView={(workout) => setPanel({ kind: 'detail', workoutId: workout.id })} onMove={(workout) => setPanel({ kind: 'moveWorkout', workoutId: workout.id })} onRemove={remove} /> : null}
-      {panel?.kind === 'detail' && activeWorkout ? <WorkoutDetailPanel workout={activeWorkout} week={currentWeek} plannedDay={days.find((day) => day.date === planner.assignments[activeWorkout.id])?.name} onMove={() => setPanel({ kind: 'moveWorkout', workoutId: activeWorkout.id })} onComplete={() => setPanel({ kind: 'complete', workoutId: activeWorkout.id })} onRemove={() => remove(activeWorkout.id)} /> : null}
-      {panel?.kind === 'complete' && activeWorkout ? <CompletePanel workout={activeWorkout} plannedDay={days.find((day) => day.date === (panel.date ?? planner.assignments[activeWorkout.id]))?.name} onViewPrescription={() => setPanel({ kind: 'detail', workoutId: activeWorkout.id })} onSave={(details) => completeWorkout(activeWorkout.id, details)} /> : null}
+      {panel?.kind === 'detail' && activeWorkout ? <WorkoutDetailPanel workout={activeWorkout} week={currentWeek} plannedDay={days.find((day) => day.date === activeWorkout.assignedDay)?.name} onMove={() => setPanel({ kind: 'moveWorkout', workoutId: activeWorkout.id })} onComplete={() => setPanel({ kind: 'complete', workoutId: activeWorkout.id })} onRemove={() => remove(activeWorkout.id)} /> : null}
+      {panel?.kind === 'complete' && activeWorkout ? <CompletePanel workout={activeWorkout} plannedDay={days.find((day) => day.date === (panel.date ?? activeWorkout.assignedDay))?.name} onViewPrescription={() => setPanel({ kind: 'detail', workoutId: activeWorkout.id })} onSave={(details) => completeWorkout(activeWorkout.id, details)} /> : null}
       {panel?.kind === 'review' && resolvedWeek ? <WeeklyReviewPanel week={currentWeek} workouts={resolvedWeek.workouts} nextWeek={plan?.weeks.find((week) => week.weekNumber > currentWeek.weekNumber)} archivedRecord={weekRecord} reflection={weeklyReflection} setReflection={setWeeklyReflection} done={Boolean(panel.done)} confirm={Boolean(panel.confirm)} onAskConfirm={() => setPanel({ kind: 'review', confirm: true })} onArchive={archiveWeek} onReviewAgain={() => setPanel({ kind: 'review' })} onPlanNext={planNextWeek} /> : null}
       {(panel?.kind === 'assignWorkout' || panel?.kind === 'moveWorkout') && activeWorkout ? <DayPickerPanel workout={activeWorkout} days={days} onAssign={(date) => assign(activeWorkout.id, date)} /> : null}
     </SlidePanel>
