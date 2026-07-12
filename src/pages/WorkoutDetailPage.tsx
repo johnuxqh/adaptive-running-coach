@@ -63,13 +63,13 @@ export function WorkoutDetailPage() {
 
   return <PageStack>
     <SectionCard><CardStack>
-      <HeroTitle eyebrow="Workout Detail" title={workout.title}><Chip tone={tone(workout.type)}>{workout.type.replace('_', ' ')}</Chip></HeroTitle>
+      <HeroTitle eyebrow="Workout" title={workout.title}><Chip tone={tone(workout.type)}>{workout.type.replace('_', ' ')}</Chip></HeroTitle>
       <DetailBlock title="Purpose">{workout.purpose}</DetailBlock>
       <DetailBlock title="Warm Up">{workout.warmup}</DetailBlock>
       <DetailBlock title="Main Set">{workout.mainSet}</DetailBlock>
       <DetailBlock title="Cool Down">{workout.cooldown}</DetailBlock>
       <DetailBlock title="Coach Tip">{workout.coachTip}</DetailBlock>
-      {workout.status === 'completed' ? <><Chip tone="green">Completed</Chip><PrimaryButton onClick={() => setSheetOpen(true)}>Edit Summary</PrimaryButton></> : <PrimaryButton onClick={() => setSheetOpen(true)}>Workout Complete</PrimaryButton>}
+      {workout.status === 'completed' ? <><Chip tone="green">Completed</Chip><PrimaryButton onClick={() => setSheetOpen(true)}>Edit Reflection</PrimaryButton></> : <PrimaryButton onClick={() => setSheetOpen(true)}>Complete Workout</PrimaryButton>}
       <SecondaryButton onClick={() => navigate('/today')}>Back to Today</SecondaryButton>
     </CardStack></SectionCard>
     {sheetOpen ? <SectionCard><CardStack>
@@ -78,7 +78,7 @@ export function WorkoutDetailPage() {
       <label style={labelStyle}>How long did you run?</label><TextInput inputMode="numeric" placeholder="Time in minutes" value={duration} onChange={(event) => setDuration(event.currentTarget.value)} />
       <label style={labelStyle}>Optional distance</label><TextInput inputMode="decimal" placeholder="Distance in km" value={distance} onChange={(event) => setDistance(event.currentTarget.value)} />
       <TextAreaWithState value={notes} onChange={setNotes} />
-      <PrimaryButton onClick={saveWorkout}>Save Workout</PrimaryButton><SecondaryButton onClick={() => setSheetOpen(false)}>Not Yet</SecondaryButton>
+      <PrimaryButton onClick={saveWorkout}>Save & Complete Workout</PrimaryButton><SecondaryButton onClick={() => setSheetOpen(false)}>Not yet</SecondaryButton>
     </CardStack></SectionCard> : null}
     {savedMessage ? <SectionCard><Chip tone="green">{savedMessage}</Chip></SectionCard> : null}
   </PageStack>;
