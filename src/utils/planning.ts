@@ -56,8 +56,18 @@ export function upsertWeeklyCompletionRecord(records: WeeklyCompletionRecord[], 
 export function buildSuggestedPlanner(plan: GeneratedTrainingPlan, existing: PlannerState = emptyPlanner): PlannerState {
   const normalized = normalizePlannerState(existing);
   const assignments = { ...normalized.assignments };
-  for (const week of plan.weeks) for (const workout of [...week.foundationWorkouts, ...week.optionalWorkouts]) if (!assignments[workout.id]) assignments[workout.id] = suggestedDateForWorkout(week, workout);
+  for (const week of plan.weeks) for (const workout of [...week.foundationWorkouts, ...week.optionalWorkouts]) {
+    const assignedDate = assignments[workout.id];
+    if (!assignedDate || !isAssignmentValidForWeek(assignedDate, week)) assignments[workout.id] = suggestedDateForWorkout(week, workout);
+  }
   return { assignments, extraWorkouts: normalized.extraWorkouts };
+}
+
+export function isAssignmentValidForWeek(date: string | undefined, week: GeneratedTrainingWeek): date is string {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const parsed = parseIsoDate(date);
+  if (Number.isNaN(parsed.getTime()) || toIsoDate(parsed) !== date) return false;
+  return date >= week.startsOn && date <= week.endsOn;
 }
 
 export function suggestedDateForWorkout(week: GeneratedTrainingWeek, workout: GeneratedWorkout): string {
@@ -70,7 +80,11 @@ export function suggestedDateForWorkout(week: GeneratedTrainingWeek, workout: Ge
 export function workoutsForWeek(week: GeneratedTrainingWeek, planner: PlannerState): GeneratedWorkout[] { return resolveWeek(week, planner, []).workouts; }
 export function getCurrentTrainingWeek(plan: GeneratedTrainingPlan | null, stored?: GeneratedTrainingWeek | null) { return stored ?? plan?.weeks[0] ?? null; }
 export function getWorkoutCompletion(workoutId: string, logs: CompletionLog[]) { return normalizeWorkoutLogs(logs).find((log) => log.workoutId === workoutId); }
-export function getPlannerAssignment(workout: GeneratedWorkout, week: GeneratedTrainingWeek, planner: PlannerState) { return normalizePlannerState(planner).assignments[workout.id] ?? (workout.status === 'unplanned' ? undefined : suggestedDateForWorkout(week, workout)); }
+export function getPlannerAssignment(workout: GeneratedWorkout, week: GeneratedTrainingWeek, planner: PlannerState) {
+  const assignedDate = normalizePlannerState(planner).assignments[workout.id];
+  if (isAssignmentValidForWeek(assignedDate, week)) return assignedDate;
+  return workout.status === 'unplanned' ? undefined : suggestedDateForWorkout(week, workout);
+}
 export function resolveWorkout(workout: GeneratedWorkout, week: GeneratedTrainingWeek, planner: PlannerState, logs: CompletionLog[]): ResolvedWorkout {
   const completion = getWorkoutCompletion(workout.id, logs);
   const suggestedDate = suggestedDateForWorkout(week, workout);
@@ -83,6 +97,11 @@ export function resolveWeek(week: GeneratedTrainingWeek, planner: PlannerState, 
   return { week, workouts, progress: getResolvedWeekProgress(workouts) };
 }
 export function getResolvedWorkoutsForDay(week: GeneratedTrainingWeek, planner: PlannerState, logs: CompletionLog[], day: string) { return resolveWeek(week, planner, logs).workouts.filter((workout) => workout.assignedDay === day); }
+export function appendCompactDurationLabel(title: string, plannedDurationMin?: number) {
+  if (!plannedDurationMin || hasSameDurationLabel(title, plannedDurationMin)) return title;
+  return `${title} · ${plannedDurationMin} min`;
+}
+function hasSameDurationLabel(title: string, minutes: number) { return new RegExp(`(^|\\D)${minutes}\\s*(m|min|mins|minutes)(\\D|$)`, 'i').test(title); }
 export function getResolvedWeekProgress(workouts: ResolvedWorkout[]): WeekProgress {
   const planned = workouts.filter((w) => !w.isRemoved);
   const completed = planned.filter((w) => w.completion);
