@@ -13,6 +13,11 @@ const SHORT_RUNWAY_INCREASE = 1.06;
 const DISTANCE_RANGE = 0.08;
 const MINUTES_PER_KM = 6.5;
 const LONG_RUN_SHARE_CAP = 0.44;
+const MARATHON_TAPER_FACTORS = [
+  { weekly: 0.78, longRun: 0.72 },
+  { weekly: 0.64, longRun: 0.55 },
+  { weekly: 0.5, longRun: 0.38 },
+];
 
 export const laurenSamplePlanInput: PlanGeneratorInput = {
   athleteName: 'Lauren',
@@ -62,8 +67,16 @@ export function generateTrainingPlan(input: PlanGeneratorInput): GeneratedTraini
     let longRunKm = startingLongRun + (targetPeakLongRun - startingLongRun) * shape;
 
     if (weekType === 'recovery') {
-      weeklyKm *= phase === 'taper' ? (weekNumber === weekDates.length - 1 ? 0.62 : 0.76) : 0.78;
-      longRunKm *= phase === 'taper' ? (weekNumber === weekDates.length - 1 ? 0.55 : 0.7) : 0.75;
+      if (phase === 'taper' && input.raceDistance === 'marathon') {
+        const taperStartWeek = weekDates.length - MARATHON_TAPER_FACTORS.length;
+        const taperIndex = Math.min(MARATHON_TAPER_FACTORS.length - 1, Math.max(0, weekNumber - taperStartWeek));
+        const taper = MARATHON_TAPER_FACTORS[taperIndex];
+        weeklyKm = targetPeakWeeklyKm * taper.weekly;
+        longRunKm = targetPeakLongRun * taper.longRun;
+      } else {
+        weeklyKm *= phase === 'taper' ? (weekNumber === weekDates.length - 1 ? 0.62 : 0.76) : 0.78;
+        longRunKm *= phase === 'taper' ? (weekNumber === weekDates.length - 1 ? 0.55 : 0.7) : 0.75;
+      }
     }
     if (weekType === 'race') {
       weeklyKm = Math.max(input.currentWeeklyKm * 0.35, targetPeakWeeklyKm * 0.42);
