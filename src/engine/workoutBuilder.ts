@@ -18,6 +18,7 @@ type BuildInput = {
   runsPerWeek: number;
   milestone?: PlanGeneratorMilestoneRace;
   raceDate: string;
+  phaseWeekNumber?: number;
 };
 
 export function buildWorkouts(input: BuildInput): { foundation: GeneratedWorkout[]; optional: GeneratedWorkout[]; warnings: string[] } {
@@ -100,31 +101,39 @@ function longRun(km: number, input: BuildInput): Omit<GeneratedWorkout, 'status'
 
 function quality(input: BuildInput): Omit<GeneratedWorkout, 'status' | 'weekNumber' | 'id'> {
   const distance = roundKm(Math.max(4, input.weeklyKm * QUALITY_SHARE));
-  const slot = input.weekNumber % 3;
+  const step = Math.max(0, (input.phaseWeekNumber ?? input.weekNumber) - 1);
   let title = 'Strides + light tempo';
   let intensity = 'Moderate';
   let purpose = 'Maintain running economy while building aerobic rhythm.';
-  let mainSet = slot === 1 ? '6 x 10 sec relaxed hill strides, walk back; then easy running.' : '12–15 minutes light tempo, never straining.';
+  let mainSet = pickProgression(step, ['6 x 10 sec relaxed hill strides, walk back; then easy running.', 'Strides then 10 minutes light tempo, never straining.', 'Strides then 2 x 8 minutes controlled light tempo with 3 minutes easy.']);
   if (input.phase === 'build') {
-    title = slot === 0 ? 'Threshold intervals 4 x 6 min' : slot === 1 ? 'Controlled hill repeats' : 'Cruise intervals 3 x 8 min';
-    intensity = 'Comfortably hard';
-    purpose = slot === 1 ? 'Build strength, power and running economy.' : 'Improve sustainable speed and lactate clearance.';
-    mainSet = slot === 0 ? '4 x 6 min threshold with 2 min easy jog.' : slot === 1 ? '8 x 60 sec uphill controlled-hard; jog down easy.' : '3 x 8 min threshold with 2–3 min easy jog.';
+    const sessions = [
+      ['Controlled hill repeats', 'Build strength, power and running economy.', '8 x 60 sec uphill controlled-hard; jog down easy.'],
+      ['Threshold intervals 3 x 5 min', 'Improve sustainable speed and lactate clearance.', '3 x 5 min threshold with 2 min easy jog.'],
+      ['Cruise intervals 3 x 8 min', 'Improve sustainable speed and lactate clearance.', '3 x 8 min threshold with 2–3 min easy jog.'],
+      ['Threshold intervals 4 x 6 min', 'Improve sustainable speed and lactate clearance.', '4 x 6 min threshold with 2 min easy jog.'],
+    ];
+    const session = sessions[step < sessions.length ? step : 2 + (step % 2)];
+    title = session[0]; intensity = 'Comfortably hard'; purpose = session[1]; mainSet = session[2];
   } else if (input.phase === 'specific') {
     intensity = 'Race specific';
     purpose = 'Practise controlled race effort and pacing.';
-    if (input.race === 'marathon') { title = slot === 0 ? '2 x 20 min marathon effort' : '3 x 10 min steady marathon effort'; mainSet = slot === 0 ? '2 x 20 min at marathon effort with 5 min easy between.' : '3 x 10 min steady/marathon effort with 3 min easy jog.'; }
-    else if (input.race === 'half_marathon') { title = slot === 0 ? '2 x 15 min half-marathon effort' : '3 x 10 min threshold'; mainSet = slot === 0 ? '2 x 15 min controlled half-marathon effort with 4 min easy.' : '3 x 10 min threshold with 3 min easy jog.'; }
-    else if (shortRace(input.race)) { title = slot === 0 ? '5 x 3 min controlled VO2' : 'Race-pace intervals'; mainSet = slot === 0 ? '5 x 3 min at controlled 5k–10k effort with 2–3 min easy.' : '6 x 2 min at race effort with 2 min easy jog.'; }
-    else { title = 'Controlled race-effort blocks'; mainSet = '3 x 8 min controlled race effort with 3 min easy jog.'; }
+    const marathon = [['3 x 10 min steady marathon effort', '3 x 10 min steady/marathon effort with 3 min easy jog.'], ['2 x 20 min marathon effort', '2 x 20 min at marathon effort with 5 min easy between.']];
+    const half = [['3 x 10 min threshold', '3 x 10 min threshold with 3 min easy jog.'], ['2 x 15 min half-marathon effort', '2 x 15 min controlled half-marathon effort with 4 min easy.']];
+    const short = input.race === '5k' ? [['Race-pace intervals', '8 x 90 sec at 5k effort with 2 min easy jog.'], ['5 x 3 min controlled VO2', '5 x 3 min at controlled 5k effort with 2–3 min easy.']] : [['Race-pace intervals', '6 x 2 min at 10k effort with 2 min easy jog.'], ['5 x 3 min controlled VO2', '5 x 3 min at controlled 10k effort with 2–3 min easy.']];
+    const session = (input.race === 'marathon' ? marathon : input.race === 'half_marathon' ? half : short)[step % 2];
+    title = session[0]; mainSet = session[1];
   } else if (input.phase === 'peak') {
-    title = input.race === 'marathon' ? 'Marathon-effort sharpening' : 'Race-specific sharpening';
+    const later = step > 0;
+    title = input.race === 'marathon' ? (later ? 'Controlled marathon-effort sharpening' : 'Marathon-effort sharpening') : (later ? 'Short race-specific sharpening' : 'Race-specific sharpening');
     intensity = 'Controlled hard';
     purpose = 'Sharpen race rhythm without adding unnecessary fatigue.';
-    mainSet = input.race === 'marathon' ? '3 x 8 min marathon effort with relaxed easy running between.' : '6 x 90 sec at race effort with full easy recoveries.';
+    mainSet = input.race === 'marathon' ? (later ? '2 x 10 min marathon effort with relaxed easy running between.' : '3 x 8 min marathon effort with relaxed easy running between.') : (later ? '5 x 90 sec at race effort with full easy recoveries.' : '6 x 90 sec at race effort with full easy recoveries.');
   } else if (input.phase === 'taper') return sharpening(input, QUALITY_SHARE, 'Wednesday');
   return { title, type: 'quality_session', category: 'foundation', plannedDistanceKm: distance, plannedDurationMin: minutes(distance), intensity, purpose, warmup: '10–15 minutes easy plus 4 relaxed strides.', mainSet, cooldown: '10 minutes easy.', coachTip: 'Finish with one rep in reserve.', suggestedDay: 'Wednesday' };
 }
+
+function pickProgression<T>(index: number, values: T[]): T { return values[index < values.length ? index : 1 + (index % (values.length - 1))]; }
 
 function recoveryQuality(input: BuildInput): Omit<GeneratedWorkout, 'status' | 'weekNumber' | 'id'> { return input.phase === 'taper' ? sharpening(input, 0.12, 'Wednesday') : { ...quality({ ...input, phase: 'base' }), title: 'Recovery-week strides', plannedDistanceKm: roundKm(input.weeklyKm * 0.14), plannedDurationMin: minutes(roundKm(input.weeklyKm * 0.14)), intensity: 'Easy with relaxed strides', purpose: 'Reduce quality load while keeping light rhythm.', mainSet: 'Easy running plus 6 x 15 sec relaxed strides with full easy recovery.', coachTip: 'This should freshen the legs, not test them.' }; }
 function sharpening(input: BuildInput, share: number, day: string): Omit<GeneratedWorkout, 'status' | 'weekNumber' | 'id'> { const d = roundKm(Math.max(3, input.weeklyKm * share)); return { title: 'Short controlled sharpening', type: 'quality_session', category: 'foundation', plannedDistanceKm: d, plannedDurationMin: minutes(d), intensity: 'Moderate', purpose: 'Preserve rhythm while reducing fatigue.', warmup: '10 minutes easy.', mainSet: '4–6 x 30 sec smooth pickups with full easy jogging.', cooldown: '10 minutes easy.', coachTip: 'Stop while you feel snappy.', suggestedDay: day }; }

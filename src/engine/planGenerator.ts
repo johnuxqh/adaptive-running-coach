@@ -100,7 +100,8 @@ export function generateTrainingPlan(input: PlanGeneratorInput): GeneratedTraini
     longRunKm = Math.max(3, longRunKm);
 
     const workoutWeekType = previousMilestone && intermediateRaceSupport(previousMilestone.distance).useRecoveryWorkouts && weekType === 'normal' ? 'recovery' : weekType;
-    const workouts = buildWorkouts({ race: input.raceDistance, raceGoal: input.raceGoal, weekNumber, phase, weekType: workoutWeekType, weeklyKm, longRunKm, runsPerWeek: input.runsPerWeek, milestone, raceDate: input.raceDate });
+    const phaseWeekNumber = weekDates.slice(0, index + 1).filter((_, phaseIndex) => getPhaseForWeek(phaseIndex + 1, weekDates.length, input.raceDistance) === phase && getWeekType(phaseIndex + 1, weekDates.length, getPhaseForWeek(phaseIndex + 1, weekDates.length, input.raceDistance)) !== 'recovery').length;
+    const workouts = buildWorkouts({ race: input.raceDistance, raceGoal: input.raceGoal, weekNumber, phase, weekType: workoutWeekType, weeklyKm, longRunKm, runsPerWeek: input.runsPerWeek, milestone, raceDate: input.raceDate, phaseWeekNumber });
     if (milestone) baseWarnings.push(milestoneWarning(weekNumber));
 
     const minKm = weeklyKm * (1 - DISTANCE_RANGE);
