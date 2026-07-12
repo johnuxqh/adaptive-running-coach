@@ -1,17 +1,17 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CardStack, Chip, HeroTitle, InfoBanner, PageStack, PrimaryButton, ProgressBar, SecondaryButton, SectionCard, SlidePanel, TextInput } from '../components/ui';
 import { colors, radius, spacing, typography } from '../design';
 import { addDays, parseIsoDate, toIsoDate } from '../engine/dateHelpers';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, GeneratedWorkoutType, TrainingPhase, WeekType } from '../engine/planTypes';
 import { readStorageValue, storageKeys, writeStorageValue } from '../utils/storage';
-import { buildSuggestedPlanner, resolveWeek, upsertWorkoutLog, type CompletionLog, type ResolvedWorkout } from '../utils/planning';
+import { buildSuggestedPlanner, normalizeWeeklyCompletionRecords, resolveWeek, upsertWeeklyCompletionRecord, upsertWorkoutLog, type CompletionLog, type ResolvedWorkout, type WeeklyCompletionRecord } from '../utils/planning';
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const plannerKey = storageKeys.weeklyPlanner;
 type PlannerCategory = 'foundation' | 'optional' | 'extra';
 type PlannerState = { assignments: Record<string, string>; extraWorkouts: GeneratedWorkout[] };
-type PanelMode = { kind: 'remaining' } | { kind: 'chooseForDay'; date: string } | { kind: 'day'; date: string } | { kind: 'assignWorkout'; workoutId: string } | { kind: 'moveWorkout'; workoutId: string } | { kind: 'detail'; workoutId: string } | { kind: 'complete'; workoutId: string; date?: string } | { kind: 'past'; date: string } | null;
+type PanelMode = { kind: 'remaining' } | { kind: 'chooseForDay'; date: string } | { kind: 'day'; date: string } | { kind: 'assignWorkout'; workoutId: string } | { kind: 'moveWorkout'; workoutId: string } | { kind: 'detail'; workoutId: string } | { kind: 'complete'; workoutId: string; date?: string } | { kind: 'past'; date: string } | { kind: 'review'; done?: boolean; confirm?: boolean } | null;
 const emptyPlanner: PlannerState = { assignments: {}, extraWorkouts: [] };
 
 const extraTypes: { label: string; type: GeneratedWorkoutType }[] = [
@@ -27,9 +27,11 @@ const extraTypes: { label: string; type: GeneratedWorkoutType }[] = [
 
 export function WeekPlannerPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const plan = readStorageValue<GeneratedTrainingPlan | null>(storageKeys.plan, null);
   const storedWeek = readStorageValue<GeneratedTrainingWeek | null>(storageKeys.currentWeek, null);
-  const currentWeek = storedWeek ?? plan?.weeks[0] ?? null;
+  const requestedWeek = Number(searchParams.get('week'));
+  const currentWeek = (requestedWeek && plan?.weeks.find((week) => week.weekNumber === requestedWeek)) ?? storedWeek ?? plan?.weeks[0] ?? null;
   const [planner, setPlanner] = useState<PlannerState>(() => plan ? buildSuggestedPlanner(plan, readPlanner()) : readPlanner());
   const [panel, setPanel] = useState<PanelMode>(null);
   const [extraTitle, setExtraTitle] = useState('');
@@ -37,16 +39,22 @@ export function WeekPlannerPage() {
   const [extraCategory, setExtraCategory] = useState<PlannerCategory>('extra');
   const [feedback, setFeedback] = useState('');
   const [logs, setLogs] = useState<CompletionLog[]>(() => readStorageValue<CompletionLog[]>(storageKeys.workoutLogs, []));
+  const [weekRecords, setWeekRecords] = useState<WeeklyCompletionRecord[]>(() => normalizeWeeklyCompletionRecords(readStorageValue<WeeklyCompletionRecord[]>(storageKeys.weekSummaries, [])));
+  const [weeklyReflection, setWeeklyReflection] = useState('');
 
-  const workouts = useMemo(() => currentWeek ? resolveWeek(currentWeek, planner, logs).workouts : [], [currentWeek, planner, logs]);
+  const resolvedWeek = useMemo(() => currentWeek ? resolveWeek(currentWeek, planner, logs) : null, [currentWeek, planner, logs]);
+  const workouts = resolvedWeek?.workouts ?? [];
   const days = useMemo(() => currentWeek ? dayNames.map((name, index) => ({ name, date: toIsoDate(addDays(parseIsoDate(currentWeek.startsOn), index)) })) : [], [currentWeek]);
   const assignedByDay = days.map((day) => ({ ...day, workouts: workouts.filter((workout) => planner.assignments[workout.id] === day.date) }));
   const remaining = workouts.filter((workout) => !planner.assignments[workout.id]);
   const todayIso = toIsoDate(new Date());
   const today = assignedByDay.find((day) => day.date === todayIso);
   const warnings = buildWarnings(assignedByDay);
+  const weekRecord = currentWeek ? weekRecords.find((record) => record.weekNumber === currentWeek.weekNumber && record.archived) : undefined;
+  const isArchived = Boolean(weekRecord);
+  const isReadyToReview = currentWeek ? todayIso >= currentWeek.endsOn : false;
 
-  function savePlanner(next: PlannerState) { setPlanner(next); writeStorageValue(plannerKey, next); }
+  function savePlanner(next: PlannerState) { if (isArchived) return; setPlanner(next); writeStorageValue(plannerKey, next); }
   function assign(workoutId: string, date: string) {
     savePlanner({ ...planner, assignments: { ...planner.assignments, [workoutId]: date } });
     const dayName = days.find((day) => day.date === date)?.name ?? 'that day';
@@ -54,7 +62,7 @@ export function WeekPlannerPage() {
     setPanel(null);
   }
   function completeWorkout(workoutId: string, details: { actualDistanceKm?: number; actualDurationMinutes?: number; perceivedEffort?: number; journalNote?: string }) {
-    if (!currentWeek) return;
+    if (!currentWeek || isArchived) return;
     const existing = logs.find((log) => log.workoutId === workoutId);
     const nextLogs = upsertWorkoutLog(logs, {
       ...existing,
@@ -68,9 +76,9 @@ export function WeekPlannerPage() {
     setLogs(nextLogs); writeStorageValue(storageKeys.workoutLogs, nextLogs);
     setFeedback('Workout complete. Your reflection has been saved.'); setPanel(null);
   }
-  function remove(workoutId: string) { if (logs.some((log) => log.workoutId === workoutId)) { setFeedback('Completed workouts stay locked. Use Edit Summary instead.'); return; } const { [workoutId]: _removed, ...assignments } = planner.assignments; savePlanner({ ...planner, assignments }); setFeedback('Workout returned to Available Workouts.'); }
+  function remove(workoutId: string) { if (isArchived) { setFeedback('Archived weeks are read-only.'); return; } if (logs.some((log) => log.workoutId === workoutId)) { setFeedback('Completed workouts stay locked. Use Edit Summary instead.'); return; } const { [workoutId]: _removed, ...assignments } = planner.assignments; savePlanner({ ...planner, assignments }); setFeedback('Workout returned to Available Workouts.'); }
   function addExtraWorkout() {
-    if (!currentWeek) return;
+    if (!currentWeek || isArchived) return;
     const selected = extraTypes.find((item) => item.label === extraTypeLabel) ?? extraTypes[0];
     const workout: GeneratedWorkout = {
       id: `extra-${currentWeek.weekNumber}-${Date.now()}`,
@@ -91,6 +99,15 @@ export function WeekPlannerPage() {
     savePlanner({ ...planner, extraWorkouts: [...planner.extraWorkouts, workout] });
     setExtraTitle('');
   }
+
+  function archiveWeek() {
+    if (!currentWeek || !resolvedWeek) return;
+    const metrics = buildWeeklyMetrics(resolvedWeek.workouts);
+    const nextRecord: WeeklyCompletionRecord = { weekNumber: currentWeek.weekNumber, archived: true, completedAt: new Date().toISOString(), weeklyReflection: weeklyReflection.trim().slice(0, 1500) || undefined, metrics };
+    const nextRecords = upsertWeeklyCompletionRecord(weekRecords, nextRecord);
+    setWeekRecords(nextRecords); writeStorageValue(storageKeys.weekSummaries, nextRecords); setPanel({ kind: 'review', done: true });
+  }
+  function planNextWeek() { const next = plan?.weeks.find((week) => currentWeek && week.weekNumber > currentWeek.weekNumber); if (next) navigate(`/week?week=${next.weekNumber}`); else setFeedback('No next training week exists in this plan.'); }
 
   if (!currentWeek) return <PageStack><HeroTitle eyebrow="Weekly planner" title="No plan found">Create a plan first, then come back to organise your week.</HeroTitle></PageStack>;
 
@@ -128,12 +145,13 @@ export function WeekPlannerPage() {
       </div>
     </CardStack></SectionCard>
     {feedback ? <InfoBanner>{feedback}</InfoBanner> : null}
-    {today && today.workouts.length === 0 ? <InfoBanner>No workout planned today. <button onClick={() => setPanel({ kind: 'chooseForDay', date: today.date })} style={linkButton}>Choose Today&apos;s Workout</button></InfoBanner> : null}
-    <WeekSnapshot days={assignedByDay} todayIso={todayIso} onDayTap={(day) => setPanel({ kind: day.date < todayIso ? 'past' : day.workouts.length ? 'day' : 'chooseForDay', date: day.date })} onWorkoutTap={(workout) => setPanel({ kind: 'detail', workoutId: workout.id })} onMove={(workout) => setPanel({ kind: 'moveWorkout', workoutId: workout.id })} />
-    <button type="button" onClick={() => setPanel({ kind: 'remaining' })} style={remainingButtonStyle}>
+    {(isReadyToReview || isArchived) ? <SectionCard><div style={reviewEntryStyle}><div><h3 style={{ ...typography.h3, margin: 0 }}>{isArchived ? 'Completed Week' : 'Ready to review'}</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xxs}px 0 0` }}>{isArchived ? 'This weekly record is archived and read-only.' : 'Pause, look back, and finish the week when you are ready.'}</p></div><PrimaryButton onClick={() => { setWeeklyReflection(weekRecord?.weeklyReflection ?? ''); setPanel({ kind: 'review' }); }}>{isArchived ? 'Review Completed Week' : 'Review & Finish Week'}</PrimaryButton></div></SectionCard> : null}
+    {!isArchived && today && today.workouts.length === 0 ? <InfoBanner>No workout planned today. <button onClick={() => setPanel({ kind: 'chooseForDay', date: today.date })} style={linkButton}>Choose Today&apos;s Workout</button></InfoBanner> : null}
+    <WeekSnapshot days={assignedByDay} todayIso={todayIso} archived={isArchived} onDayTap={(day) => isArchived ? setPanel({ kind: 'review' }) : setPanel({ kind: day.date < todayIso ? 'past' : day.workouts.length ? 'day' : 'chooseForDay', date: day.date })} onWorkoutTap={(workout) => isArchived ? setPanel({ kind: 'review' }) : setPanel({ kind: 'detail', workoutId: workout.id })} onMove={(workout) => isArchived ? setFeedback('Archived weeks are read-only.') : setPanel({ kind: 'moveWorkout', workoutId: workout.id })} />
+    {!isArchived ? <button type="button" onClick={() => setPanel({ kind: 'remaining' })} style={remainingButtonStyle}>
       <span><strong>Available Workouts</strong><small>{remaining.length} workout{remaining.length === 1 ? '' : 's'} ready to place</small></span>
       <span aria-hidden="true">→</span>
-    </button>
+    </button> : null}
     <SlidePanel isOpen={Boolean(panel)} title={panelTitle(panel, activeDay, activeWorkout)} subtitle={panelSubtitle(panel, activeDay)} onClose={() => setPanel(null)}>
       {panel?.kind === 'remaining' ? <RemainingPanel remaining={remaining} onAssign={(workout) => setPanel({ kind: 'assignWorkout', workoutId: workout.id })} extraTitle={extraTitle} setExtraTitle={setExtraTitle} extraTypeLabel={extraTypeLabel} setExtraTypeLabel={setExtraTypeLabel} extraCategory={extraCategory} setExtraCategory={setExtraCategory} onAdd={addExtraWorkout} /> : null}
       {panel?.kind === 'past' && activeDay ? <PastDayPanel day={activeDay} onComplete={(workout) => setPanel({ kind: 'complete', workoutId: workout.id, date: activeDay.date })} /> : null}
@@ -141,6 +159,7 @@ export function WeekPlannerPage() {
       {panel?.kind === 'day' && activeDay ? <PlannedDayPanel day={activeDay} onView={(workout) => setPanel({ kind: 'detail', workoutId: workout.id })} onMove={(workout) => setPanel({ kind: 'moveWorkout', workoutId: workout.id })} onRemove={remove} /> : null}
       {panel?.kind === 'detail' && activeWorkout ? <WorkoutDetailPanel workout={activeWorkout} week={currentWeek} plannedDay={days.find((day) => day.date === planner.assignments[activeWorkout.id])?.name} onMove={() => setPanel({ kind: 'moveWorkout', workoutId: activeWorkout.id })} onComplete={() => setPanel({ kind: 'complete', workoutId: activeWorkout.id })} onRemove={() => remove(activeWorkout.id)} /> : null}
       {panel?.kind === 'complete' && activeWorkout ? <CompletePanel workout={activeWorkout} plannedDay={days.find((day) => day.date === (panel.date ?? planner.assignments[activeWorkout.id]))?.name} onViewPrescription={() => setPanel({ kind: 'detail', workoutId: activeWorkout.id })} onSave={(details) => completeWorkout(activeWorkout.id, details)} /> : null}
+      {panel?.kind === 'review' && resolvedWeek ? <WeeklyReviewPanel week={currentWeek} workouts={resolvedWeek.workouts} nextWeek={plan?.weeks.find((week) => week.weekNumber > currentWeek.weekNumber)} archivedRecord={weekRecord} reflection={weeklyReflection} setReflection={setWeeklyReflection} done={Boolean(panel.done)} confirm={Boolean(panel.confirm)} onAskConfirm={() => setPanel({ kind: 'review', confirm: true })} onArchive={archiveWeek} onReviewAgain={() => setPanel({ kind: 'review' })} onPlanNext={planNextWeek} /> : null}
       {(panel?.kind === 'assignWorkout' || panel?.kind === 'moveWorkout') && activeWorkout ? <DayPickerPanel workout={activeWorkout} days={days} onAssign={(date) => assign(activeWorkout.id, date)} /> : null}
     </SlidePanel>
   </PageStack>;
@@ -154,9 +173,9 @@ function workoutTone(workout: GeneratedWorkout) { if (workout.type === 'quality_
 function hard(workout: GeneratedWorkout) { return workout.type === 'quality_session' || workout.type === 'long_run' || workout.intensity.toLowerCase().includes('hard'); }
 function buildWarnings(days: { workouts: GeneratedWorkout[] }[]) { const warnings: string[] = []; const hardDays = days.filter((day) => day.workouts.some(hard)).length; days.forEach((day, index) => { const today = day.workouts; const previous = days[index - 1]?.workouts ?? []; if (today.some((w) => w.type === 'quality_session') && previous.some((w) => w.type === 'quality_session')) warnings.push('Gentle note: threshold-style sessions on back-to-back days can feel spicy.'); if (today.some((w) => w.type === 'long_run') && previous.some((w) => w.type === 'quality_session')) warnings.push('Friendly reminder: a long run after threshold may need extra recovery.'); }); if (hardDays >= 3) warnings.push('This week now has three hard days. Keep the easy days truly easy.'); return [...new Set(warnings)]; }
 
-function WeekSnapshot({ days, todayIso, onDayTap, onWorkoutTap, onMove }: { days: Array<{ name: string; date: string; workouts: ResolvedWorkout[] }>; todayIso: string; onDayTap: (day: { name: string; date: string; workouts: ResolvedWorkout[] }) => void; onWorkoutTap: (workout: ResolvedWorkout) => void; onMove: (workout: ResolvedWorkout) => void }) {
+function WeekSnapshot({ days, todayIso, archived, onDayTap, onWorkoutTap, onMove }: { days: Array<{ name: string; date: string; workouts: ResolvedWorkout[] }>; todayIso: string; archived?: boolean; onDayTap: (day: { name: string; date: string; workouts: ResolvedWorkout[] }) => void; onWorkoutTap: (workout: ResolvedWorkout) => void; onMove: (workout: ResolvedWorkout) => void }) {
   return <SectionCard><CardStack>
-    <div><h3 style={{ ...typography.h3, margin: 0 }}>Weekly Planner</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xxs}px 0 0` }}>Coach recommendation. Tap a workout for details, or move it to fit life.</p></div>
+    <div><h3 style={{ ...typography.h3, margin: 0 }}>Weekly Planner</h3><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xxs}px 0 0` }}>{archived ? 'Archived weekly schedule. Training records are read-only.' : 'Coach recommendation. Tap a workout for details, or move it to fit life.'}</p></div>
     <div style={{ display: 'grid', gap: spacing.xs }}>
       {days.map((day) => { const past = day.date < todayIso; return <div key={day.date} style={{ ...dayButtonStyle, opacity: past ? 0.62 : 1, background: past ? colors.neutral.faint : colors.neutral.surface }}>
         <button type="button" onClick={() => onDayTap(day)} style={dayHeaderButtonStyle}><strong>{day.name}</strong><span style={{ ...typography.caption, color: colors.neutral.muted }}>{formatDate(day.date)}</span></button>
@@ -168,7 +187,7 @@ function WeekSnapshot({ days, todayIso, onDayTap, onWorkoutTap, onMove }: { days
   </CardStack></SectionCard>;
 }
 function Stat({ label, value, detail, compact }: { label: string; value: string; detail?: string; compact?: boolean }) { return <div><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>{label}</p><h3 style={{ ...(compact ? typography.small : typography.h3), fontWeight: compact ? 650 : typography.h3.fontWeight, margin: `${spacing.xxs}px 0 0` }}>{value}</h3>{detail ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>{detail}</p> : null}</div>; }
-function panelTitle(panel: PanelMode, day?: { name: string } | null, workout?: GeneratedWorkout | null) { if (!panel) return ''; if (panel.kind === 'past') return 'Update past day'; if (panel.kind === 'detail') return workout?.title ?? 'Workout details'; if (panel.kind === 'complete') return 'Complete workout'; if (panel.kind === 'remaining') return 'Available Workouts'; if (panel.kind === 'chooseForDay' || panel.kind === 'day') return day?.name ?? 'Day'; return panel.kind === 'moveWorkout' ? `Move ${workout?.title ?? 'Workout'}` : `Assign ${workout?.title ?? 'Workout'}`; }
+function panelTitle(panel: PanelMode, day?: { name: string } | null, workout?: GeneratedWorkout | null) { if (!panel) return ''; if (panel.kind === 'review') return panel.done ? 'Week complete' : 'Review & Finish Week'; if (panel.kind === 'past') return 'Update past day'; if (panel.kind === 'detail') return workout?.title ?? 'Workout details'; if (panel.kind === 'complete') return 'Complete workout'; if (panel.kind === 'remaining') return 'Available Workouts'; if (panel.kind === 'chooseForDay' || panel.kind === 'day') return day?.name ?? 'Day'; return panel.kind === 'moveWorkout' ? `Move ${workout?.title ?? 'Workout'}` : `Assign ${workout?.title ?? 'Workout'}`; }
 function panelSubtitle(panel: PanelMode, day?: { workouts: GeneratedWorkout[] } | null) { if (panel?.kind === 'chooseForDay') return 'Choose a workout for this day'; if (panel?.kind === 'day') return day?.workouts.length ? 'Planned workouts' : 'Open'; return undefined; }
 function ProgressRow({ label, value, total }: { label: string; value: number; total: number }) { return <div><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: spacing.xs }}><span style={typography.small}>{label}</span><span style={{ ...typography.small, color: colors.neutral.muted }}>{value} / {total}</span></div><ProgressBar value={total ? (value / total) * 100 : 0} /></div>; }
 
@@ -220,6 +239,7 @@ function Select({ value, onChange, options }: { value: string; onChange: (value:
 
 const compactHeroStyle = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(88px, 112px)', gap: spacing.sm, alignItems: 'center' } as const;
 const summaryLeadStyle = { borderLeft: `3px solid ${colors.primary.green}`, paddingLeft: spacing.sm } as const;
+const reviewEntryStyle = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: spacing.sm, alignItems: 'center' } as const;
 const summaryGridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: `${spacing.sm}px ${spacing.md}px` } as const;
 const dayHeaderButtonStyle = { ...typography.small, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, width: '100%', border: 0, background: 'transparent', color: colors.neutral.text, padding: 0, textAlign: 'left' as const, cursor: 'pointer' } as const;
 const restRowStyle = { ...typography.small, width: '100%', display: 'flex', justifyContent: 'space-between', gap: spacing.sm, border: 0, borderRadius: radius.input, padding: `${spacing.xxs}px 0`, background: 'transparent', color: colors.neutral.muted, cursor: 'pointer' } as const;
@@ -336,6 +356,40 @@ function CompletePanel({ workout, plannedDay, onViewPrescription, onSave }: { wo
 }
 
 
+
+function buildWeeklyMetrics(workouts: ResolvedWorkout[]) {
+  const planned = workouts.filter((workout) => !workout.isRemoved);
+  const completed = planned.filter((workout) => workout.completion);
+  const plannedDistanceKm = planned.reduce((sum, workout) => sum + (workout.plannedDistanceKm ?? 0), 0);
+  const actualDistanceKm = completed.reduce((sum, workout) => sum + (completionDistance(workout.completion) ?? 0), 0);
+  const actualDurationMinutes = completed.reduce((sum, workout) => sum + (completionDuration(workout.completion) ?? 0), 0);
+  return { plannedWorkouts: planned.length, completedWorkouts: completed.length, plannedDistanceKm: Math.round(plannedDistanceKm * 10) / 10 || undefined, actualDistanceKm: Math.round(actualDistanceKm * 10) / 10 || undefined, actualDurationMinutes: Math.round(actualDurationMinutes) || undefined };
+}
+function keyWorkout(workouts: ResolvedWorkout[]) { return workouts.find((w) => w.type === 'race') ?? workouts.find((w) => w.type === 'quality_session') ?? workouts.find((w) => w.type === 'long_run'); }
+function WeeklyReviewPanel(props: { week: GeneratedTrainingWeek; workouts: ResolvedWorkout[]; nextWeek?: GeneratedTrainingWeek; archivedRecord?: WeeklyCompletionRecord; reflection: string; setReflection: (value: string) => void; done: boolean; confirm: boolean; onAskConfirm: () => void; onArchive: () => void; onReviewAgain: () => void; onPlanNext: () => void }) {
+  const { week, workouts, nextWeek, archivedRecord } = props;
+  const archived = Boolean(archivedRecord);
+  const metrics = archivedRecord?.metrics ?? buildWeeklyMetrics(workouts);
+  const completed = workouts.filter((workout) => !workout.isRemoved && workout.completion);
+  const longest = completed.filter((workout) => completionDistance(workout.completion)).sort((a, b) => (completionDistance(b.completion) ?? 0) - (completionDistance(a.completion) ?? 0))[0];
+  const key = keyWorkout(workouts.filter((workout) => !workout.isRemoved));
+  const longRun = workouts.find((workout) => workout.type === 'long_run');
+  const story = workouts.filter((workout) => !workout.isRemoved).sort((a, b) => (a.assignedDay ?? '').localeCompare(b.assignedDay ?? ''));
+  if (props.done) return <CardStack><section style={completedBlockStyle}><h3 style={{ ...typography.h2, margin: 0 }}>Nice work.</h3><p style={{ ...typography.body, margin: `${spacing.xs}px 0 0` }}>You completed {metrics.completedWorkouts} of {metrics.plannedWorkouts} planned sessions this week.</p><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xs}px 0 0` }}>Consistency beats perfection. Your next training week is ready when you are.</p></section><PrimaryButton onClick={props.onPlanNext}>Plan Next Week</PrimaryButton><SecondaryButton onClick={props.onReviewAgain}>Review Completed Week</SecondaryButton></CardStack>;
+  return <CardStack>
+    <section style={reviewHeaderStyle} aria-labelledby="week-review-title"><div><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>Week {week.weekNumber} · {formatPhase(week.phase)}</p><h3 id="week-review-title" style={{ ...typography.h3, margin: `${spacing.xxs}px 0 0` }}>{formatDate(week.startsOn)}–{formatDate(week.endsOn)}</h3></div><Chip tone={archived ? 'green' : 'sky'}>{archived ? 'Archived' : `${metrics.completedWorkouts} of ${metrics.plannedWorkouts} completed`}</Chip></section>
+    <section style={summaryStripStyle} aria-labelledby="weekly-summary-title"><h4 id="weekly-summary-title" style={{ ...typography.h3, margin: 0, gridColumn: '1 / -1' }}>Weekly Completion Summary</h4><Stat label="Sessions" value={`${metrics.completedWorkouts} of ${metrics.plannedWorkouts}`} compact /><Stat label="Completion" value={`${metrics.plannedWorkouts ? Math.round((metrics.completedWorkouts / metrics.plannedWorkouts) * 100) : 0}%`} compact />{metrics.actualDistanceKm ? <Stat label="Actual Distance" value={`${metrics.actualDistanceKm} km`} compact /> : null}{metrics.plannedDistanceKm ? <Stat label="Planned Distance" value={`${metrics.plannedDistanceKm} km`} compact /> : null}{metrics.actualDurationMinutes ? <Stat label="Actual Duration" value={`${metrics.actualDurationMinutes} min`} compact /> : null}<Stat label="Longest Run" value={longest ? `${completionDistance(longest.completion)} km` : 'Not recorded'} compact /><Stat label="Key Session" value={key?.completion ? 'Completed' : key ? 'Not completed' : 'Not planned'} compact /></section>
+    <section style={plannedContextStyle}><h4 style={{ ...typography.h3, margin: 0 }}>Planned versus Completed</h4><div style={comparisonGridStyle}><Stat label="Distance · Planned" value={metrics.plannedDistanceKm ? `${metrics.plannedDistanceKm} km` : 'Not planned'} compact /><Stat label="Distance · Completed" value={metrics.actualDistanceKm ? `${metrics.actualDistanceKm} km` : 'Not recorded'} compact /><Stat label="Sessions · Planned" value={`${metrics.plannedWorkouts}`} compact /><Stat label="Sessions · Completed" value={`${metrics.completedWorkouts}`} compact /></div></section>
+    <section style={coachBlockStyle}><h4 style={{ ...typography.h3, margin: 0 }}>Coach Summary</h4>{coachSummaryLines(week, workouts, nextWeek).map((line) => <p key={line} style={{ ...typography.body, margin: `${spacing.xs}px 0 0` }}>{line}</p>)}</section>
+    <section style={{ display: 'grid', gap: spacing.xs }} aria-labelledby="week-story-title"><h4 id="week-story-title" style={{ ...typography.h3, margin: 0 }}>This Week’s Story</h4>{story.map((workout) => <StoryItem key={workout.id} workout={workout} />)}</section>
+    <section style={{ display: 'grid', gap: spacing.xs }}><label htmlFor="weekly-reflection" style={{ ...typography.h3, margin: 0 }}>Weekly Reflection</label><p style={{ ...typography.small, color: colors.neutral.muted, margin: 0 }}>Looking back on the week... What would you like to remember about this week?</p>{archived ? <p style={{ ...typography.body, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0 }}>{archivedRecord?.weeklyReflection || 'No weekly reflection recorded.'}</p> : <><textarea id="weekly-reflection" maxLength={1500} value={props.reflection} onChange={(event) => props.setReflection(event.target.value)} placeholder="Work was stressful early in the week, but the Sunday long run restored my confidence." style={journalTextAreaStyle} /><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>{props.reflection.length}/1500</p></>}</section>
+    {!archived && (props.confirm ? <section style={contextStyle}><h4 style={{ ...typography.h3, margin: 0 }}>Finish this week?</h4><p style={{ ...typography.small, margin: 0 }}>Your schedule and workout records will become part of your training history. The weekly record will remain available to review.</p><PrimaryButton onClick={props.onArchive}>Finish & Archive Week</PrimaryButton></section> : <PrimaryButton onClick={props.onAskConfirm}>Finish & Archive Week</PrimaryButton>)}
+    {archived ? <PrimaryButton onClick={props.onPlanNext}>Plan Next Week</PrimaryButton> : null}
+  </CardStack>;
+}
+function coachSummaryLines(week: GeneratedTrainingWeek, workouts: ResolvedWorkout[], nextWeek?: GeneratedTrainingWeek) { const planned = workouts.filter((w) => !w.isRemoved); const completed = planned.filter((w) => w.completion); const key = keyWorkout(planned); const longRun = planned.find((w) => w.type === 'long_run'); return [`You completed ${completed.length} of ${planned.length} planned sessions this week.`, key?.completion && longRun?.completion ? 'Your key session and long run were both completed.' : key?.completion ? 'Your key session was completed.' : longRun?.completion ? 'Your long run was completed.' : '', week.weekType === 'recovery' ? 'This was a recovery week, so reduced volume was intentional.' : week.phase === 'taper' ? 'This week reduced fatigue while maintaining rhythm.' : key?.type === 'race' ? `${key.title.replace(/^🏁\s*/, '')} was the primary session this week.` : '', nextWeek ? `Next week ${nextWeek.phase === week.phase ? 'continues' : 'moves into'} the ${formatPhase(nextWeek.phase).toLowerCase()} phase.` : 'No next training week is currently available in this plan.'].filter(Boolean); }
+function StoryItem({ workout }: { workout: ResolvedWorkout }) { const log = workout.completion; const status = log ? ['Completed', feelingLabel(log.perceivedEffort)].filter(Boolean).join(' · ') : 'Not completed'; return <article style={storyItemStyle} aria-label={`${workout.title}, ${status}`}><p style={{ ...typography.caption, color: colors.neutral.muted, margin: 0 }}>{workout.assignedDay ? new Intl.DateTimeFormat('en', { weekday: 'long' }).format(parseIsoDate(workout.assignedDay)) : 'Unscheduled'}</p><h5 style={{ ...typography.h3, margin: `${spacing.xxs}px 0 0` }}>{workout.title}</h5><p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xxs}px 0 0` }}>{roleLabel(workout).replace(/[🏁⭐🟣🟢💙⚪]/g, '').trim()} · {status}{completionDistance(log) ? ` · ${completionDistance(log)} km` : ''}{completionDuration(log) ? ` · ${completionDuration(log)} min` : ''}</p>{workout.moved && workout.suggestedDate && workout.assignedDay ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: `${spacing.xxs}px 0 0` }}>Moved from {new Intl.DateTimeFormat('en', { weekday: 'long' }).format(parseIsoDate(workout.suggestedDate))} to {new Intl.DateTimeFormat('en', { weekday: 'long' }).format(parseIsoDate(workout.assignedDay))}.</p> : null}{log?.journalNote || log?.notes ? <p style={{ ...typography.body, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: `${spacing.xs}px 0 0` }}>“{log.journalNote ?? log.notes}”</p> : null}</article>; }
+
 const detailHeroStyle = { border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.sm, background: colors.neutral.surface } as const;
 const summaryStripStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))', gap: spacing.xs, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.sm, background: colors.neutral.faint } as const;
 const detailLabelStyle = { ...typography.caption, color: colors.neutral.muted, margin: 0 } as const;
@@ -347,4 +401,7 @@ const plannedContextStyle = { border: `1px solid ${colors.neutral.border}`, bord
 const completedBlockStyle = { display: 'grid', gap: spacing.sm, border: `1px solid ${colors.primary.green}`, borderRadius: radius.card, padding: spacing.sm, background: colors.primary.greenTint } as const;
 const feelingGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))', gap: spacing.xs } as const;
 const feelingButtonStyle = { ...typography.small, display: 'grid', gap: 2, alignContent: 'center', minHeight: 52, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.button, padding: spacing.xs, background: colors.neutral.surface, color: colors.neutral.text, cursor: 'pointer' } as const;
+const reviewHeaderStyle = { display: 'flex', justifyContent: 'space-between', gap: spacing.sm, alignItems: 'center', border: `1px solid ${colors.neutral.border}`, borderRadius: radius.card, padding: spacing.sm, background: colors.neutral.surface } as const;
+const comparisonGridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: spacing.sm, marginTop: spacing.sm } as const;
+const storyItemStyle = { borderLeft: `3px solid ${colors.neutral.border}`, padding: `${spacing.xs}px 0 ${spacing.xs}px ${spacing.sm}`, background: colors.neutral.surface } as const;
 const journalTextAreaStyle = { ...typography.body, width: '100%', minHeight: 112, maxHeight: 220, boxSizing: 'border-box' as const, resize: 'vertical' as const, border: `1px solid ${colors.neutral.border}`, borderRadius: radius.input, padding: spacing.md, color: colors.neutral.text, background: colors.neutral.surface, overflowWrap: 'anywhere' as const } as const;
