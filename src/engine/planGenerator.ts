@@ -82,13 +82,25 @@ export function generateTrainingPlan(input: PlanGeneratorInput): GeneratedTraini
       weeklyKm = Math.max(input.currentWeeklyKm * 0.35, targetPeakWeeklyKm * 0.42);
       longRunKm = raceDistanceKm[input.raceDistance];
     }
+
+    const milestone = milestoneForWeek(input.milestoneRaces ?? [], dates.startsOn, dates.endsOn);
+    const previousMilestone = index > 0 ? milestoneForWeek(input.milestoneRaces ?? [], weekDates[index - 1].startsOn, weekDates[index - 1].endsOn) : undefined;
+    if (milestone && weekType !== 'race') {
+      const support = intermediateRaceSupport(milestone.distance);
+      weeklyKm = Math.max(raceDistanceKm[milestone.distance] + support.minimumNonRaceKm, weeklyKm * support.raceWeekLoadFactor);
+      longRunKm = Math.min(longRunKm * support.longRunFactor, support.maximumSeparateLongRunKm);
+    } else if (previousMilestone && weekType !== 'race') {
+      const support = intermediateRaceSupport(previousMilestone.distance);
+      weeklyKm *= support.nextWeekLoadFactor;
+      longRunKm *= support.nextWeekLongRunFactor;
+    }
     const shareCap = input.raceDistance === 'marathon' ? 0.48 : LONG_RUN_SHARE_CAP;
     if (weekType !== 'race' && longRunKm > weeklyKm * shareCap) weeklyKm = longRunKm / shareCap;
     weeklyKm = Math.max(5, weeklyKm);
     longRunKm = Math.max(3, longRunKm);
 
-    const milestone = milestoneForWeek(input.milestoneRaces ?? [], dates.startsOn, dates.endsOn);
-    const workouts = buildWorkouts({ race: input.raceDistance, raceGoal: input.raceGoal, weekNumber, phase, weekType, weeklyKm, longRunKm, runsPerWeek: input.runsPerWeek, milestone, raceDate: input.raceDate });
+    const workoutWeekType = previousMilestone && intermediateRaceSupport(previousMilestone.distance).useRecoveryWorkouts && weekType === 'normal' ? 'recovery' : weekType;
+    const workouts = buildWorkouts({ race: input.raceDistance, raceGoal: input.raceGoal, weekNumber, phase, weekType: workoutWeekType, weeklyKm, longRunKm, runsPerWeek: input.runsPerWeek, milestone, raceDate: input.raceDate });
     if (milestone) baseWarnings.push(milestoneWarning(weekNumber));
 
     const minKm = weeklyKm * (1 - DISTANCE_RANGE);
@@ -106,6 +118,14 @@ export function generateTrainingPlan(input: PlanGeneratorInput): GeneratedTraini
   const plan = { id: `plan-${input.athleteName.toLowerCase().replace(/\s+/g, '-')}-${input.raceDate}`, inputs: input, weeksFromNowToRaceWeek: weeks.length, weeks, warnings: baseWarnings, summary: buildPlanSummary(input, weeks, daysUntilRace, template.emphasis, baseWarnings) };
   const checkedPlan = finalisePlanIntegrity(plan);
   return { ...checkedPlan, summary: buildPlanSummary(input, checkedPlan.weeks, daysUntilRace, template.emphasis, checkedPlan.warnings) };
+}
+
+function intermediateRaceSupport(race: PlanGeneratorMilestoneRace['distance']) {
+  const km = raceDistanceKm[race];
+  if (km >= 42) return { raceWeekLoadFactor: 0.5, longRunFactor: 0, maximumSeparateLongRunKm: 0, minimumNonRaceKm: 8, nextWeekLoadFactor: 0.62, nextWeekLongRunFactor: 0.55, useRecoveryWorkouts: true };
+  if (km >= 21) return { raceWeekLoadFactor: 0.62, longRunFactor: 0, maximumSeparateLongRunKm: 0, minimumNonRaceKm: 6, nextWeekLoadFactor: 0.75, nextWeekLongRunFactor: 0.7, useRecoveryWorkouts: true };
+  if (km >= 10) return { raceWeekLoadFactor: 0.76, longRunFactor: 0.55, maximumSeparateLongRunKm: 12, minimumNonRaceKm: 7, nextWeekLoadFactor: 0.86, nextWeekLongRunFactor: 0.82, useRecoveryWorkouts: true };
+  return { raceWeekLoadFactor: 0.86, longRunFactor: 0.78, maximumSeparateLongRunKm: 16, minimumNonRaceKm: 8, nextWeekLoadFactor: 0.94, nextWeekLongRunFactor: 0.9, useRecoveryWorkouts: false };
 }
 
 function milestoneForWeek(milestones: PlanGeneratorMilestoneRace[], startsOn: string, endsOn: string): PlanGeneratorMilestoneRace | undefined {

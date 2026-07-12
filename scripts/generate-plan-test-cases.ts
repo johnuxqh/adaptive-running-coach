@@ -150,7 +150,37 @@ function runValidationAssertions(cases: CaseRecord[]) {
   assert(!validateFinalMarathonTaper(duplicateTaperPlan, 30).valid, 'duplicated or non-reducing taper must fail validation');
   assert(health.some((row) => row.maxRecoveryBouncePercent > 18 && row.maxBuildToBuildIncreasePercent <= 12 && !row.issues.includes('recovery rebound')), 'recovery bounce alone must not create unsafe-build issue');
   assert(health.some((row) => row.maxBuildToBuildIncreasePercent > 12 && row.issues.includes('build-to-build increase')), 'unsafe build-to-build increases must warn');
+  validateIntermediateRaceSupport();
 }
+
+function validateIntermediateRaceSupport() {
+  const marathonRaceDate = addDays(currentDate, 40 * 7 - 2);
+  const halfPlan = generateTrainingPlan({ athleteName: 'Intermediate Half Test', raceDistance: 'marathon', raceGoal: 'Personal Best', raceDate: marathonRaceDate, currentWeeklyKm: 35, longestRunKm: 19, runsPerWeek: 4, currentDate, milestoneRaces: [{ name: 'Supported Half Marathon', date: '2026-11-21', distance: 'half_marathon' }] });
+  const noMilestonePlan = generateTrainingPlan({ athleteName: 'No Intermediate Race Test', raceDistance: 'marathon', raceGoal: 'Personal Best', raceDate: marathonRaceDate, currentWeeklyKm: 35, longestRunKm: 19, runsPerWeek: 4, currentDate });
+  const halfWeek = halfPlan.weeks[19];
+  const halfRecoveryWeek = halfPlan.weeks[20];
+  const normalWeek = noMilestonePlan.weeks[19];
+  assert(halfWeek.foundationWorkouts.some((workout) => workout.type === 'race' && workout.plannedDistanceKm === 21.1), 'week 20 must contain the supported half-marathon race');
+  assert(halfWeek.targetDistanceRangeKm.max < normalWeek.targetDistanceRangeKm.max * 0.75, 'half-marathon milestone week must reduce total workload versus normal build');
+  assert(primaryWorkout(halfWeek)?.type === 'race', 'half-marathon milestone must be the primary hard session');
+  assert(!halfWeek.foundationWorkouts.some((workout) => workout.type === 'long_run'), 'half-marathon milestone week must not stack a separate traditional long run');
+  assert(!hasCompetingMajorQuality(halfWeek), 'half-marathon milestone week must not keep a competing major quality session');
+  assert(halfRecoveryWeek.targetDistanceRangeKm.max < halfPlan.weeks[21].targetDistanceRangeKm.max, 'week after half-marathon milestone must apply recovery before build resumes');
+  assert(halfPlan.weeks[21].targetDistanceRangeKm.max > halfRecoveryWeek.targetDistanceRangeKm.max, 'destination progression must resume after half-marathon recovery');
+  assert(maxLongRunWeek(halfPlan) > 20, 'destination marathon peak long run must remain later than the half-marathon milestone');
+  assert(validateFinalMarathonTaper(halfPlan, 30).valid, 'final marathon taper must remain intact after half-marathon milestone');
+
+  const tenKPlan = generateTrainingPlan({ athleteName: 'Intermediate 10k Test', raceDistance: 'marathon', raceGoal: 'Personal Best', raceDate: marathonRaceDate, currentWeeklyKm: 35, longestRunKm: 19, runsPerWeek: 4, currentDate, milestoneRaces: [{ name: 'Supported 10k', date: '2026-11-21', distance: '10k' }] });
+  const tenKWeek = tenKPlan.weeks[19];
+  assert(tenKWeek.foundationWorkouts.some((workout) => workout.type === 'race' && workout.plannedDistanceKm === 10), '10k milestone week must contain the supported race');
+  assert(tenKWeek.targetDistanceRangeKm.max < normalWeek.targetDistanceRangeKm.max && tenKWeek.targetDistanceRangeKm.max > halfWeek.targetDistanceRangeKm.max, '10k milestone support must be lighter than half-marathon support but below normal build');
+  assert(primaryWorkout(tenKWeek)?.type === 'race', '10k milestone must replace the normal major quality session');
+  assert(!hasCompetingMajorQuality(tenKWeek), '10k milestone week must not keep an unnecessary competing hard workout');
+  assert(tenKPlan.weeks[21].targetDistanceRangeKm.max > tenKPlan.weeks[20].targetDistanceRangeKm.max, 'training must resume after 10k milestone recovery');
+  assert(validateFinalMarathonTaper(tenKPlan, 30).valid, 'final marathon taper must remain intact after 10k milestone');
+  assert(validateFinalMarathonTaper(noMilestonePlan, 30).valid, 'no-intermediate marathon plan must keep Pass 2A taper behaviour');
+}
+
 
 
 function validateFinalMarathonTaper(plan: GeneratedTrainingPlan, minimumPeakLongRunKm: number): { valid: boolean; reason?: string } {
@@ -174,6 +204,10 @@ function validateFinalMarathonTaper(plan: GeneratedTrainingPlan, minimumPeakLong
   return { valid: true };
 }
 
+function primaryWorkout(week: GeneratedTrainingWeek): GeneratedWorkout | undefined { return [...week.foundationWorkouts].sort((a, b) => workoutDemandKm(b) - workoutDemandKm(a))[0]; }
+function workoutDemandKm(workout: GeneratedWorkout): number { return (workout.plannedDistanceKm ?? 0) * (workout.type === 'race' ? 1.4 : workout.type === 'quality_session' ? 1.2 : 1); }
+function hasCompetingMajorQuality(week: GeneratedTrainingWeek): boolean { return week.foundationWorkouts.some((workout) => workout.type === 'quality_session' && /threshold|VO2|hill|marathon effort|half-marathon effort|race-effort|tempo/i.test(`${workout.title} ${workout.mainSet}`)); }
+function maxLongRunWeek(plan: GeneratedTrainingPlan): number { return plan.weeks.reduce((best, week) => longRunKm(week) > longRunKm(plan.weeks[best - 1]) ? week.weekNumber : best, 1); }
 function trainingLoadKm(week: GeneratedTrainingWeek): number { return week.targetDistanceRangeKm.max; }
 function raceWeekTrainingLoadKm(week: GeneratedTrainingWeek): number { return sum(week.foundationWorkouts.filter((workout) => workout.type !== 'race').map((workout) => workout.plannedDistanceKm ?? 0)); }
 function longRunKm(week: GeneratedTrainingWeek): number { return week.foundationWorkouts.find((workout) => workout.type === 'long_run')?.plannedDistanceKm ?? 0; }
