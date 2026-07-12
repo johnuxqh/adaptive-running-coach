@@ -157,9 +157,17 @@ function validateIntermediateRaceSupport() {
   const marathonRaceDate = addDays(currentDate, 40 * 7 - 2);
   const halfPlan = generateTrainingPlan({ athleteName: 'Intermediate Half Test', raceDistance: 'marathon', raceGoal: 'Personal Best', raceDate: marathonRaceDate, currentWeeklyKm: 35, longestRunKm: 19, runsPerWeek: 4, currentDate, milestoneRaces: [{ name: 'Supported Half Marathon', date: '2026-11-21', distance: 'half_marathon' }] });
   const noMilestonePlan = generateTrainingPlan({ athleteName: 'No Intermediate Race Test', raceDistance: 'marathon', raceGoal: 'Personal Best', raceDate: marathonRaceDate, currentWeeklyKm: 35, longestRunKm: 19, runsPerWeek: 4, currentDate });
+  const halfHealth = evaluateEngineHealth(halfPlan, 'INTERMEDIATE-HALF');
   const halfWeek = halfPlan.weeks[19];
   const halfRecoveryWeek = halfPlan.weeks[20];
   const normalWeek = noMilestonePlan.weeks[19];
+  assert(halfHealth.intermediateRaceSupportPresent, 'half-marathon milestone support must be reported present');
+  assert(halfHealth.intermediateRacePrimary, 'half-marathon milestone race must be reported as primary');
+  assert(halfHealth.intermediateRaceConflictFree, 'half-marathon milestone race must be reported conflict-free');
+  assert(halfHealth.intermediateRaceLongRunValid, 'half-marathon milestone long-run handling must be valid');
+  assert(halfHealth.intermediateRaceRecoveryValid, 'half-marathon recovery must be valid');
+  assert(halfHealth.destinationProgressionResumed, 'destination progression must be reported as resumed after half-marathon');
+  assert(halfHealth.intermediateRaceSupportValid, 'half-marathon intermediate support must pass combined validation');
   assert(halfWeek.foundationWorkouts.some((workout) => workout.type === 'race' && workout.plannedDistanceKm === 21.1), 'week 20 must contain the supported half-marathon race');
   assert(halfWeek.targetDistanceRangeKm.max < normalWeek.targetDistanceRangeKm.max * 0.75, 'half-marathon milestone week must reduce total workload versus normal build');
   assert(primaryWorkout(halfWeek)?.type === 'race', 'half-marathon milestone must be the primary hard session');
@@ -171,17 +179,49 @@ function validateIntermediateRaceSupport() {
   assert(validateFinalMarathonTaper(halfPlan, 30).valid, 'final marathon taper must remain intact after half-marathon milestone');
 
   const tenKPlan = generateTrainingPlan({ athleteName: 'Intermediate 10k Test', raceDistance: 'marathon', raceGoal: 'Personal Best', raceDate: marathonRaceDate, currentWeeklyKm: 35, longestRunKm: 19, runsPerWeek: 4, currentDate, milestoneRaces: [{ name: 'Supported 10k', date: '2026-11-21', distance: '10k' }] });
+  const tenKHealth = evaluateEngineHealth(tenKPlan, 'INTERMEDIATE-10K');
   const tenKWeek = tenKPlan.weeks[19];
+  assert(tenKHealth.intermediateRaceSupportPresent && tenKHealth.intermediateRacePrimary && tenKHealth.intermediateRaceConflictFree, '10k milestone must be supported, primary, and conflict-free');
+  assert(tenKHealth.intermediateRaceLongRunValid && tenKHealth.intermediateRaceRecoveryValid && tenKHealth.destinationProgressionResumed && tenKHealth.intermediateRaceSupportValid, '10k milestone support and destination resumption must validate');
   assert(tenKWeek.foundationWorkouts.some((workout) => workout.type === 'race' && workout.plannedDistanceKm === 10), '10k milestone week must contain the supported race');
   assert(tenKWeek.targetDistanceRangeKm.max < normalWeek.targetDistanceRangeKm.max && tenKWeek.targetDistanceRangeKm.max > halfWeek.targetDistanceRangeKm.max, '10k milestone support must be lighter than half-marathon support but below normal build');
   assert(primaryWorkout(tenKWeek)?.type === 'race', '10k milestone must replace the normal major quality session');
   assert(!hasCompetingMajorQuality(tenKWeek), '10k milestone week must not keep an unnecessary competing hard workout');
   assert(tenKPlan.weeks[21].targetDistanceRangeKm.max > tenKPlan.weeks[20].targetDistanceRangeKm.max, 'training must resume after 10k milestone recovery');
   assert(validateFinalMarathonTaper(tenKPlan, 30).valid, 'final marathon taper must remain intact after 10k milestone');
+  const noMilestoneHealth = evaluateEngineHealth(noMilestonePlan, 'NO-INTERMEDIATE');
+  assert(!noMilestoneHealth.intermediateRaceSupportPresent && noMilestoneHealth.intermediateRaceSupportValid, 'no-intermediate plan must remain neutral for intermediate-race validation');
+  assert(!noMilestoneHealth.issues.includes('Intermediate race'), 'no-intermediate plan must not create intermediate-race issues');
   assert(validateFinalMarathonTaper(noMilestonePlan, 30).valid, 'no-intermediate marathon plan must keep Pass 2A taper behaviour');
+
+  const invalidLongRunPlan = JSON.parse(JSON.stringify(halfPlan)) as GeneratedTrainingPlan;
+  invalidLongRunPlan.weeks[19].foundationWorkouts.push({ ...invalidLongRunPlan.weeks[18].foundationWorkouts.find((workout) => workout.type === 'long_run')!, id: 'invalid-stacked-long-run', weekNumber: 20 });
+  const invalidLongRunHealth = evaluateEngineHealth(invalidLongRunPlan, 'INVALID-HALF-LONG-RUN');
+  assert(!invalidLongRunHealth.intermediateRaceLongRunValid && !invalidLongRunHealth.intermediateRaceSupportValid, 'half-marathon plus separate traditional long run must fail intermediate validation');
+  assert(invalidLongRunHealth.issues.includes('Half-marathon race week includes a separate traditional long run.'), 'invalid half-marathon long-run case must report the correct issue');
+
+  const invalidRecoveryPlan = JSON.parse(JSON.stringify(halfPlan)) as GeneratedTrainingPlan;
+  invalidRecoveryPlan.weeks[20].targetDistanceRangeKm.max = invalidRecoveryPlan.weeks[21].targetDistanceRangeKm.max;
+  invalidRecoveryPlan.weeks[20].foundationWorkouts.unshift({ ...invalidRecoveryPlan.weeks[21].foundationWorkouts.find((workout) => workout.type === 'quality_session')!, id: 'invalid-post-race-quality', weekNumber: 21 });
+  const invalidRecoveryHealth = evaluateEngineHealth(invalidRecoveryPlan, 'INVALID-HALF-RECOVERY');
+  assert(!invalidRecoveryHealth.intermediateRaceRecoveryValid && !invalidRecoveryHealth.intermediateRaceSupportValid, 'immediate full-quality loading after half-marathon must fail recovery validation');
+  assert(invalidRecoveryHealth.issues.includes('Post-race recovery is insufficient for the scheduled race demand.'), 'invalid recovery case must report the correct issue');
+
+  printIntermediateRaceAudit('40-week marathon + half marathon', halfPlan, halfHealth);
+  printIntermediateRaceAudit('40-week marathon + 10k', tenKPlan, tenKHealth);
 }
 
 
+
+function printIntermediateRaceAudit(label: string, plan: GeneratedTrainingPlan, health: ReturnType<typeof evaluateEngineHealth>) {
+  const milestone = plan.inputs.milestoneRaces?.[0];
+  if (!milestone) return;
+  const raceWeek = plan.weeks.find((week) => week.foundationWorkouts.some((workout) => workout.type === 'race' && workout.plannedDistanceKm === (milestone.distance === 'half_marathon' ? 21.1 : milestone.distance === 'marathon' ? 42.2 : milestone.distance === '15k' ? 15 : milestone.distance === '10k' ? 10 : 5)));
+  if (!raceWeek) return;
+  const nextWeek = plan.weeks[raceWeek.weekNumber];
+  const finalTaperWeeks = plan.weeks.filter((week) => week.phase === 'taper').map((week) => week.weekNumber).join(',');
+  console.log(`[Intermediate race audit] ${label}: destination=${plan.inputs.raceDistance}; intermediate=${milestone.distance}; week=${raceWeek.weekNumber}; nonRaceKm=${raceWeekTrainingLoadKm(raceWeek)}; racePrimary=${primaryWorkout(raceWeek)?.type === 'race'}; competingHard=${hasCompetingMajorQuality(raceWeek) ? 1 : 0}; separateLongRun=${raceWeek.foundationWorkouts.some((workout) => workout.type === 'long_run')}; followingRecoveryLoad=${nextWeek?.targetDistanceRangeKm.max ?? 0}; destinationPeakWeek=${maxLongRunWeek(plan)}; finalTaperWeeks=${finalTaperWeeks}; intermediateRaceSupportValid=${health.intermediateRaceSupportValid}; issues=${health.issues || 'none'}; warnings=${health.warnings || 'none'}`);
+}
 
 function validateFinalMarathonTaper(plan: GeneratedTrainingPlan, minimumPeakLongRunKm: number): { valid: boolean; reason?: string } {
   const raceWeek = plan.weeks.at(-1);
