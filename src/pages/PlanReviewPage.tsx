@@ -21,7 +21,7 @@ export function PlanReviewPage() {
   if (!plan) return <PageStack><SectionCard><HeroTitle eyebrow="Plan review" title="No plan yet">Complete onboarding and I&apos;ll build your personalised plan.</HeroTitle><PrimaryButton onClick={() => navigate('/onboarding')}>Start Onboarding</PrimaryButton></SectionCard></PageStack>;
   const summary = plan.summary;
   return <PageStack>
-    <SectionCard><HeroTitle eyebrow="Full plan review" title={raceLabels[summary.raceDistance]}>{summary.athleteName} • {summary.daysUntilRace} days • {summary.trainingWeeks} weeks</HeroTitle><PrimaryButton onClick={() => navigate('/week')}>Back to Week Planner</PrimaryButton></SectionCard>
+    <SectionCard><HeroTitle eyebrow="Review Plan" title={raceLabels[summary.raceDistance]}>{summary.athleteName} • {summary.daysUntilRace} days • {summary.trainingWeeks} weeks</HeroTitle><PrimaryButton onClick={() => navigate('/week')}>Back to Plan Week</PrimaryButton></SectionCard>
     <div style={planStatsStyle}><StatCard label="Foundation" value={String(summary.totalFoundationWorkouts)} /><StatCard label="Optional" value={String(summary.totalOptionalWorkouts)} /><StatCard label="Distance" value={`${summary.estimatedDistanceRangeKm.min}–${summary.estimatedDistanceRangeKm.max} km`} /><StatCard label="Time" value={`${formatMinutes(summary.estimatedTimeRangeMin.min)}–${formatMinutes(summary.estimatedTimeRangeMin.max)}`} /></div>
     <InfoBanner>{summary.planEmphasis.slice(0, 2).join(' · ')}</InfoBanner>
     {summary.planWarnings.length ? <InfoBanner>{summary.planWarnings.slice(0, 2).join(' · ')}</InfoBanner> : null}
@@ -43,7 +43,7 @@ function WeekReviewCard({ week, planner, logs, todayIso, archivedRecord, onOpen,
         <div style={summaryLineStyle}><span><strong>{week.targetDistanceRangeKm.min}–{week.targetDistanceRangeKm.max} km</strong></span><span>{formatMinutes(week.targetDurationRangeMin.min)}–{formatMinutes(week.targetDurationRangeMin.max)}</span></div>
         <KeySession label={keySession} /><CompactSchedule workouts={workouts} week={week} /></>}
     </button>
-    <PrimaryButton aria-label={archived ? `Review Week ${week.weekNumber}` : `Open Weekly Planner for Week ${week.weekNumber}`} onClick={archived ? onOpen : onOpenPlanner}>{archived ? 'Review Week' : 'Open Weekly Planner'}</PrimaryButton>
+    <PrimaryButton aria-label={archived ? `Review Week ${week.weekNumber}` : `Plan Week ${week.weekNumber}`} onClick={archived ? onOpen : onOpenPlanner}>{archived ? 'Review Completed Week' : 'Plan Week'}</PrimaryButton>
   </div>;
 }
 
@@ -57,7 +57,7 @@ function WeekDetail({ week, planner, logs, todayIso, archivedRecord, nextWeek, o
     <PanelSection title="Week summary"><div style={summaryGridStyle}><SummaryItem label="Target distance" value={`${week.targetDistanceRangeKm.min}–${week.targetDistanceRangeKm.max} km`} /><SummaryItem label="Estimated time" value={`${formatMinutes(week.targetDurationRangeMin.min)}–${formatMinutes(week.targetDurationRangeMin.max)}`} /><SummaryItem label="Key session" value={keySessionLabel(workouts, week)} /><SummaryItem label="Recovery status" value={formatWeekType(week.weekType)} /></div></PanelSection>
     <PanelSection title="Week schedule"><CompactSchedule workouts={workouts} week={week} /></PanelSection>
     <PanelSection title="Available workouts"><p style={panelCopyStyle}>{workouts.filter((workout) => workout.status === 'unplanned').length} workout{workouts.filter((workout) => workout.status === 'unplanned').length === 1 ? '' : 's'} not currently assigned.</p></PanelSection>
-    <PrimaryButton onClick={onOpenPlanner}>{archived ? 'Review Completed Week' : weekStatus(week, todayIso, archived) === 'Current' ? 'Plan This Week' : 'Open Weekly Planner'}</PrimaryButton>
+    <PrimaryButton onClick={onOpenPlanner}>{archived ? 'Review Completed Week' : 'Plan Week'}</PrimaryButton>
   </CardStack>;
 }
 
@@ -66,8 +66,8 @@ function ArchivedCardSummary({ historical, archivedRecord }: { historical: Retur
   return <div style={{ display: 'grid', gap: spacing.xs }}>
     <p style={focusStyle}>{metrics.completedWorkouts} of {metrics.plannedWorkouts} workouts completed{completionPercent !== undefined ? ` · ${completionPercent}%` : ''}</p>
     <div style={summaryLineStyle}>{metrics.actualDistanceKm ? <span>{metrics.actualDistanceKm} km</span> : null}{metrics.actualDurationMinutes ? <span>{formatMinutes(metrics.actualDurationMinutes)}</span> : null}</div>
-    {keyWorkout ? <p style={warningLineStyle}>Key Session: {cleanLabel(keyWorkout.title)}{keyWorkout.completion ? ' · Completed' : ' · Incomplete'}</p> : null}
-    {longestCompletedRun ? <p style={warningLineStyle}>Longest Run: {completionDistance(longestCompletedRun.completion)} km</p> : null}
+    {keyWorkout ? <p style={warningLineStyle}>Key session: {cleanLabel(keyWorkout.title)}{keyWorkout.completion ? ' · Completed' : ' · Incomplete'}</p> : null}
+    {longestCompletedRun ? <p style={warningLineStyle}>Longest run: {completionDistance(longestCompletedRun.completion)} km</p> : null}
     {archivedRecord?.weeklyReflection ? <p style={warningLineStyle}>Weekly reflection saved</p> : null}
   </div>;
 }
@@ -76,12 +76,11 @@ function ArchivedWeekDetail({ week, workouts, archivedRecord, nextWeek }: { week
   const historical = buildHistoricalWeekSummary(week, workouts, archivedRecord, nextWeek);
   const { metrics, completionPercent, keyWorkout, longestCompletedRun } = historical;
   return <CardStack>
-    <section style={readOnlyCueStyle} aria-label="Archived training record"><strong>Archived training record</strong><p style={panelCopyStyle}>This week is preserved as part of your history. Review is read-only.</p></section>
+    <section style={readOnlyCueStyle} aria-label="Added to your training history"><strong>Added to your training history</strong><p style={panelCopyStyle}>This completed week is saved in your training history. Review is read-only.</p></section>
     <PanelSection title="Week summary"><div style={summaryGridStyle}><SummaryItem label="Sessions planned" value={String(metrics.plannedWorkouts)} /><SummaryItem label="Sessions completed" value={String(metrics.completedWorkouts)} />{completionPercent !== undefined ? <SummaryItem label="Completion" value={`${completionPercent}%`} /> : null}<SummaryItem label="Planned distance" value={metrics.plannedDistanceKm ? `${metrics.plannedDistanceKm} km` : 'Not recorded'} /><SummaryItem label="Completed distance" value={metrics.actualDistanceKm ? `${metrics.actualDistanceKm} km` : 'Not recorded'} /><SummaryItem label="Planned duration" value={metrics.plannedDurationMinutes ? formatMinutes(metrics.plannedDurationMinutes) : 'Not recorded'} /><SummaryItem label="Completed duration" value={metrics.actualDurationMinutes ? formatMinutes(metrics.actualDurationMinutes) : 'Not recorded'} /><SummaryItem label="Longest run" value={longestCompletedRun ? `${completionDistance(longestCompletedRun.completion)} km` : 'Not recorded'} /><SummaryItem label="Key session" value={keyWorkout ? `${cleanLabel(keyWorkout.title)} · ${keyWorkout.completion ? 'Completed' : 'Incomplete'}` : 'Not planned'} /></div></PanelSection>
-    <PanelSection title="Planned versus completed"><div style={summaryGridStyle}><SummaryItem label="Distance · Planned" value={metrics.plannedDistanceKm ? `${metrics.plannedDistanceKm} km` : 'Not recorded'} /><SummaryItem label="Distance · Completed" value={metrics.actualDistanceKm ? `${metrics.actualDistanceKm} km` : 'Not recorded'} /><SummaryItem label="Time · Planned" value={metrics.plannedDurationMinutes ? formatMinutes(metrics.plannedDurationMinutes) : 'Not recorded'} /><SummaryItem label="Time · Completed" value={metrics.actualDurationMinutes ? formatMinutes(metrics.actualDurationMinutes) : 'Not recorded'} /></div></PanelSection>
     <PanelSection title="Coach Summary">{historical.coachSummary.map((line) => <p key={line} style={panelCopyStyle}>{line}</p>)}</PanelSection>
     <PanelSection title="This Week’s Story">{historical.storyWorkouts.map((workout) => <StoryItem key={workout.id} workout={workout} />)}</PanelSection>
-    <PanelSection title="Weekly Reflection"><p style={reflectionTextStyle}>{archivedRecord?.weeklyReflection || 'No weekly reflection was recorded.'}</p></PanelSection>
+    <PanelSection title="Weekly Reflection"><p style={reflectionTextStyle}>{archivedRecord?.weeklyReflection || 'No weekly reflection was added.'}</p></PanelSection>
   </CardStack>;
 }
 
@@ -103,7 +102,7 @@ function PanelSection({ title, children }: { title: string; children: ReactNode 
 function SummaryItem({ label, value }: { label: string; value: string }) { return <div><p style={sectionLabelStyle}>{label}</p><p style={{ ...typography.small, color: colors.neutral.text, margin: `${spacing.xxs}px 0 0`, fontWeight: 750 }}>{value}</p></div>; }
 
 function archivedRecordFor(week: GeneratedTrainingWeek, records: WeeklyCompletionRecord[]) { return records.find((record) => record.weekNumber === week.weekNumber && record.archived); }
-function weekStatus(week: GeneratedTrainingWeek, todayIso: string, archived: boolean) { if (archived) return 'Archived'; if (todayIso >= week.startsOn && todayIso <= week.endsOn) return 'Current'; if (todayIso > week.endsOn) return 'Past'; return 'Future'; }
+function weekStatus(week: GeneratedTrainingWeek, todayIso: string, archived: boolean) { if (archived) return 'In history'; if (todayIso >= week.startsOn && todayIso <= week.endsOn) return 'Current'; if (todayIso > week.endsOn) return 'Past'; return 'Future'; }
 function coachFocus(week: GeneratedTrainingWeek, workouts: ResolvedWorkout[]) { const race = workouts.find((workout) => workout.type === 'race'); if (race) return `${formatRaceLabel(race)} is this week’s primary training demand.`; return week.coachingMessage; }
 function keySessionLabel(workouts: ResolvedWorkout[], week: GeneratedTrainingWeek) { const race = workouts.find((workout) => workout.type === 'race'); if (race) return `🏁 ${formatRaceLabel(race)}`; const longRun = workouts.find((workout) => workout.type === 'long_run'); if (longRun) return `Long Run${longRun.plannedDistanceKm ? ` · ${longRun.plannedDistanceKm} km` : ''}`; const quality = workouts.find((workout) => workout.type === 'quality_session'); if (quality) return cleanLabel(quality.title); return week.weekType === 'recovery' ? 'Recovery and adaptation' : 'Aerobic support'; }
 export function compactWorkoutLabel(workout: ResolvedWorkout) { const title = workout.type === 'race' ? `🏁 ${formatRaceLabel(workout)}` : appendCompactDurationLabel(cleanLabel(workout.title), workout.plannedDurationMin); return `${title}${workout.status === 'completed' ? ' ✓' : ''}`; }
