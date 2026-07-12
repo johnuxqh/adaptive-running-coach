@@ -4,7 +4,7 @@ import type { WorkoutLog } from '../engine/types';
 
 export type PlannerState = { assignments: Record<string, string>; extraWorkouts: GeneratedWorkout[] };
 export const emptyPlanner: PlannerState = { assignments: {}, extraWorkouts: [] };
-export type CompletionLog = WorkoutLog & { feeling?: string; actualDistanceKm?: number; actualDurationMinutes?: number; raceFinishTime?: string; weekNumber?: number; status?: 'completed' };
+export type CompletionLog = WorkoutLog & { feeling?: string; actualDistanceKm?: number; actualDurationMinutes?: number; journalNote?: string; raceFinishTime?: string; weekNumber?: number; status?: 'completed' };
 export type ResolvedWorkout = GeneratedWorkout & { assignedDay?: string; suggestedDate?: string; moved: boolean; isRemoved: boolean; isExtra: boolean; completion?: CompletionLog; status: 'unplanned' | 'planned' | 'completed' | 'skipped' };
 export type ResolvedWeek = { week: GeneratedTrainingWeek; workouts: ResolvedWorkout[]; progress: WeekProgress };
 export type WeekProgress = { foundationPlanned: number; foundationCompleted: number; optionalPlanned: number; optionalCompleted: number; extraCompleted: number; actualKm: number; actualMinutes: number; completedWorkoutIds: string[]; missedFoundationWorkoutIds: string[]; missedOptionalWorkoutIds: string[] };
