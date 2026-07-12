@@ -358,11 +358,14 @@ function workoutRow(caseId: string, input: PlanGeneratorInput, plan: GeneratedTr
 function verifyIntegrity(outputs: { summary: string[][]; weeks: string[][]; workouts: string[][]; health: string[][] }) {
   const summary = objects(outputs.summary), weeks = objects(outputs.weeks), workouts = objects(outputs.workouts), health = objects(outputs.health);
   const planIds = new Set(summary.map((r) => r.planId));
+  for (const table of Object.values(outputs)) assert(new Set(table[0]).size === table[0].length, 'CSV headers must be unique');
   assert(planIds.size === summary.length, 'every plan must have exactly one summary row');
   assert(new Set(health.map((r) => r.planId)).size === health.length && health.length === summary.length, 'every plan must have exactly one health row');
   for (const row of [...weeks, ...workouts, ...health]) assert(planIds.has(row.planId), `${row.planId} row is orphaned`);
   const weekKeys = new Set(weeks.map((r) => `${r.planId}:${r.weekNumber}`));
+  assert(weekKeys.size === weeks.length, 'every plan/week pair must be unique');
   for (const row of workouts) assert(weekKeys.has(`${row.planId}:${row.weekNumber}`), `${row.workoutId} references missing week`);
+  for (const row of weeks) assert(workouts.some((w) => w.planId === row.planId && w.weekNumber === row.weekNumber), `${row.planId} week ${row.weekNumber} has no exported workouts`);
   for (const id of planIds) { assert(weeks.some((r) => r.planId === id), `${id} has no weeks`); assert(health.filter((r) => r.planId === id).length === 1, `${id} health row count mismatch`); const ids = workouts.filter((r) => r.planId === id).map((r) => r.workoutId); assert(new Set(ids).size === ids.length, `${id} has duplicate workoutId`); }
   for (const row of health) { assert((row.longRunTargetMet === 'true') === isWithinRange(Number(row.achievedPeakLongRunKm), Number(row.targetPeakLongRunMin), Number(row.targetPeakLongRunMax)), `${row.planId} longRunTargetMet contradicts range`); assert((row.weeklyVolumeTargetMet === 'true') === isWithinRange(Number(row.achievedPeakWeeklyKm), Number(row.targetPeakWeeklyKmMin), Number(row.targetPeakWeeklyKmMax)), `${row.planId} weeklyVolumeTargetMet contradicts range`); assert(grade(Number(row.engineScore)) === row.engineGrade, `${row.planId} grade contradicts score`); }
   for (const table of Object.values(outputs)) { const width = table[0].length; table.forEach((row) => assert(row.length === width, 'malformed CSV row')); }
