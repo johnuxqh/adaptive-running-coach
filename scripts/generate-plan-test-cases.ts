@@ -2,7 +2,7 @@ declare function require(name: string): any;
 declare const process: { cwd(): string };
 const { mkdirSync, writeFileSync } = require('node:fs');
 const path = require('node:path');
-import { classifyRunway, evaluateEngineHealth, grade, isWithinRange } from '../src/engine/engineHealth';
+import { classifyRunway, evaluateEngineHealth, grade, isWithinRange, validateQualityProgression } from '../src/engine/engineHealth';
 import { generateTrainingPlan } from '../src/engine/planGenerator';
 import type { GeneratedTrainingPlan, GeneratedTrainingWeek, GeneratedWorkout, PlanGeneratorInput, RaceType } from '../src/engine/planTypes';
 
@@ -145,7 +145,13 @@ function runValidationAssertions(cases: CaseRecord[]) {
   const laurenCompetitive = cases.find((item) => item.input.athleteName === 'Lauren Competitive Marathon');
   if (!laurenPb || !laurenCompetitive) throw new Error('Lauren marathon validation cases must exist');
   assert(validateFinalMarathonTaper(laurenPb.plan, 30).valid, 'Lauren PB Marathon must keep a 30km+ peak and progressive final taper');
+  assert(validateQualityProgression(laurenPb.plan).qualityProgressionValid, 'Lauren PB Marathon must avoid duplicate normal-week primary quality and include marathon progression');
+  assert(earlyQuality(laurenPb.plan), 'Lauren PB Marathon early quality must be introductory');
+  assert(validateQualityProgression(laurenCompetitive.plan).qualityProgressionValid, 'Lauren Competitive Marathon must avoid duplicate normal-week primary quality and include marathon progression');
   assert(validateFinalMarathonTaper(laurenCompetitive.plan, 32).valid, 'Lauren Competitive Marathon must keep a 32km+ peak and progressive final taper');
+  printQualityAudit('Lauren PB Marathon', laurenPb.plan);
+  printQualityAudit('Lauren Competitive Marathon', laurenCompetitive.plan);
+  validateNegativeQualityDuplicate(laurenPb.plan);
   const duplicateTaperPlan = clonePlanWithDuplicateTaper(laurenPb.plan);
   assert(!validateFinalMarathonTaper(duplicateTaperPlan, 30).valid, 'duplicated or non-reducing taper must fail validation');
   assert(health.some((row) => row.maxRecoveryBouncePercent > 18 && row.maxBuildToBuildIncreasePercent <= 12 && !row.issues.includes('recovery rebound')), 'recovery bounce alone must not create unsafe-build issue');
@@ -177,6 +183,7 @@ function validateIntermediateRaceSupport() {
   assert(halfPlan.weeks[21].targetDistanceRangeKm.max > halfRecoveryWeek.targetDistanceRangeKm.max, 'destination progression must resume after half-marathon recovery');
   assert(maxLongRunWeek(halfPlan) > 20, 'destination marathon peak long run must remain later than the half-marathon milestone');
   assert(validateFinalMarathonTaper(halfPlan, 30).valid, 'final marathon taper must remain intact after half-marathon milestone');
+  assert(validateQualityProgression(halfPlan).qualityProgressionValid, 'quality progression must resume without duplicate normal-week quality after half-marathon milestone');
 
   const tenKPlan = generateTrainingPlan({ athleteName: 'Intermediate 10k Test', raceDistance: 'marathon', raceGoal: 'Personal Best', raceDate: marathonRaceDate, currentWeeklyKm: 35, longestRunKm: 19, runsPerWeek: 4, currentDate, milestoneRaces: [{ name: 'Supported 10k', date: '2026-11-21', distance: '10k' }] });
   const tenKHealth = evaluateEngineHealth(tenKPlan, 'INTERMEDIATE-10K');
@@ -193,6 +200,11 @@ function validateIntermediateRaceSupport() {
   assert(!noMilestoneHealth.intermediateRaceSupportPresent && noMilestoneHealth.intermediateRaceSupportValid, 'no-intermediate plan must remain neutral for intermediate-race validation');
   assert(!noMilestoneHealth.issues.includes('Intermediate race'), 'no-intermediate plan must not create intermediate-race issues');
   assert(validateFinalMarathonTaper(noMilestonePlan, 30).valid, 'no-intermediate marathon plan must keep Pass 2A taper behaviour');
+
+  const halfDestinationPlan = generateTrainingPlan({ athleteName: 'Shorter Distance Quality Test', raceDistance: 'half_marathon', raceGoal: 'Personal Best', raceDate: addDays(currentDate, 14 * 7 - 2), currentWeeklyKm: 30, longestRunKm: 14, runsPerWeek: 4, currentDate });
+  assert(validateQualityProgression(halfDestinationPlan).qualityProgressionValid, 'half-marathon destination must avoid duplicate normal-week primary quality');
+  assert(halfDestinationPlan.weeks.some((week) => week.phase === 'specific' && week.foundationWorkouts.some((workout) => /half-marathon|threshold/i.test(`${workout.title} ${workout.mainSet}`))), 'half-marathon destination must receive half-marathon-specific quality');
+  assert(!halfDestinationPlan.weeks.some((week) => week.foundationWorkouts.some((workout) => /(^|[^-])marathon effort|marathon-effort/i.test(`${workout.title} ${workout.mainSet}`))), 'half-marathon destination must not receive marathon-specific quality');
 
   const invalidLongRunPlan = JSON.parse(JSON.stringify(halfPlan)) as GeneratedTrainingPlan;
   invalidLongRunPlan.weeks[19].foundationWorkouts.push({ ...invalidLongRunPlan.weeks[18].foundationWorkouts.find((workout) => workout.type === 'long_run')!, id: 'invalid-stacked-long-run', weekNumber: 20 });
@@ -211,6 +223,33 @@ function validateIntermediateRaceSupport() {
   printIntermediateRaceAudit('40-week marathon + 10k', tenKPlan, tenKHealth);
 }
 
+
+function printQualityAudit(label: string, plan: GeneratedTrainingPlan) {
+  const progression = validateQualityProgression(plan);
+  console.log(`[Quality audit] ${label}: qualityProgressionValid=${progression.qualityProgressionValid}; duplicateWeeks=${progression.duplicateWeeks.join(',') || 'none'}; marathonSpecificSessionCount=${progression.marathonSpecificSessionCount}`);
+  plan.weeks.forEach((week) => {
+    const workout = week.foundationWorkouts.find((item) => item.type === 'quality_session' || item.type === 'race');
+    if (!workout) return;
+    console.log(`[Quality audit] week=${week.weekNumber}; phase=${week.phase}; title=${workout.title}; category=${qualityCategory(workout)}; mainSet=${workout.mainSet}; qualityMin=${qualityMinutes(workout) || 'n/a'}; status=${week.weekType === 'recovery' ? 'recovery' : 'normal'}; raceSupport=${week.foundationWorkouts.some((item) => item.type === 'race') && week.weekType !== 'race'}; taper=${week.phase === 'taper'}`);
+  });
+}
+
+function validateNegativeQualityDuplicate(plan: GeneratedTrainingPlan) {
+  const clone = JSON.parse(JSON.stringify(plan)) as GeneratedTrainingPlan;
+  const normalQualityWeeks = clone.weeks.filter((week) => week.phase === 'build' && week.weekType === 'normal' && week.foundationWorkouts.some((workout) => workout.type === 'quality_session'));
+  assert(normalQualityWeeks.length >= 2, 'negative duplicate case needs two normal build quality weeks');
+  const first = normalQualityWeeks[0].foundationWorkouts.find((workout) => workout.type === 'quality_session')!;
+  const second = normalQualityWeeks[1].foundationWorkouts.find((workout) => workout.type === 'quality_session')!;
+  Object.assign(second, { title: first.title, mainSet: first.mainSet, intensity: first.intensity });
+  const result = validateQualityProgression(clone);
+  assert(!result.qualityProgressionValid, 'negative duplicate quality case must fail qualityProgressionValid');
+  assert(result.issues.some((issue) => /Duplicate primary quality/.test(issue)), 'negative duplicate quality case must report duplicate primary quality issue');
+  console.log(`[Quality audit] negative duplicate case: qualityProgressionValid=${result.qualityProgressionValid}; duplicateWeeks=${result.duplicateWeeks.join(',')}; issues=${result.issues.join(' | ')}`);
+}
+
+function earlyQuality(plan: GeneratedTrainingPlan) { return plan.weeks.filter((week) => week.phase === 'base').some((week) => week.foundationWorkouts.some((workout) => /stride|light tempo/i.test(`${workout.title} ${workout.mainSet}`))); }
+function qualityCategory(workout: GeneratedWorkout) { return /race/.test(workout.type) ? 'race' : /marathon/.test(`${workout.title} ${workout.mainSet}`) ? 'marathon-specific' : /half-marathon/.test(`${workout.title} ${workout.mainSet}`) ? 'half-specific' : /threshold|cruise/.test(`${workout.title} ${workout.mainSet}`) ? 'threshold' : /hill/.test(`${workout.title} ${workout.mainSet}`) ? 'hills' : /VO2|race/i.test(`${workout.title} ${workout.mainSet}`) ? 'race-pace' : 'introductory'; }
+function qualityMinutes(workout: GeneratedWorkout) { const reps = /^(\d+) x (\d+) min/.exec(workout.mainSet); if (reps) return Number(reps[1]) * Number(reps[2]); const doubles = /^(\d+) x (\d+) min/.exec(workout.title); return doubles ? Number(doubles[1]) * Number(doubles[2]) : undefined; }
 
 
 function printIntermediateRaceAudit(label: string, plan: GeneratedTrainingPlan, health: ReturnType<typeof evaluateEngineHealth>) {

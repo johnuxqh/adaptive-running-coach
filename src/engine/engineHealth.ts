@@ -7,7 +7,7 @@ export type EngineGrade = 'A' | 'B' | 'C' | 'D' | 'F';
 export type RunwayClassification = 'SHORT' | 'COMPRESSED' | 'NORMAL' | 'LONG';
 
 export interface EngineHealthRow {
-  caseId: string; raceDistance: string; raceGoal: string; weeksToRace: number; currentWeeklyKm: number; longestRunKm: number; runsPerWeek: number; achievedPeakLongRunKm: number; peakLongRunKm: number; peakLongRunWeek: number; targetPeakLongRunMin: number; targetPeakLongRunMax: number; longRunTargetMet: boolean; achievedPeakWeeklyKm: number; peakWeeklyKm: number; targetPeakWeeklyKmMin: number; targetPeakWeeklyKmMax: number; weeklyVolumeTargetMet: boolean; maxOrdinaryWeekIncreasePercent: number; maxBuildToBuildIncreasePercent: number; maxRecoveryBouncePercent: number; runwayClassification: RunwayClassification; recoveryWeeksPresent: boolean; taperPresent: boolean; raceWeekPresent: boolean; foundationCountValid: boolean; intermediateRaceSupportPresent: boolean; intermediateRacePrimary: boolean; intermediateRaceConflictFree: boolean; intermediateRaceLongRunValid: boolean; intermediateRaceRecoveryValid: boolean; destinationProgressionResumed: boolean; intermediateRaceSupportValid: boolean; suspiciousWarningCount: number; engineScore: number; engineGrade: EngineGrade; issues: string; warnings: string;
+  caseId: string; raceDistance: string; raceGoal: string; weeksToRace: number; currentWeeklyKm: number; longestRunKm: number; runsPerWeek: number; achievedPeakLongRunKm: number; peakLongRunKm: number; peakLongRunWeek: number; targetPeakLongRunMin: number; targetPeakLongRunMax: number; longRunTargetMet: boolean; achievedPeakWeeklyKm: number; peakWeeklyKm: number; targetPeakWeeklyKmMin: number; targetPeakWeeklyKmMax: number; weeklyVolumeTargetMet: boolean; maxOrdinaryWeekIncreasePercent: number; maxBuildToBuildIncreasePercent: number; maxRecoveryBouncePercent: number; runwayClassification: RunwayClassification; recoveryWeeksPresent: boolean; taperPresent: boolean; raceWeekPresent: boolean; foundationCountValid: boolean; intermediateRaceSupportPresent: boolean; intermediateRacePrimary: boolean; intermediateRaceConflictFree: boolean; intermediateRaceLongRunValid: boolean; intermediateRaceRecoveryValid: boolean; destinationProgressionResumed: boolean; intermediateRaceSupportValid: boolean; qualityProgressionValid: boolean; duplicateQualityWeeks: string; marathonSpecificSessionCount: number; suspiciousWarningCount: number; engineScore: number; engineGrade: EngineGrade; issues: string; warnings: string;
 }
 
 const SAFE_BUILD_TO_BUILD_PERCENT = 12;
@@ -35,6 +35,7 @@ export function evaluateEngineHealth(plan: GeneratedTrainingPlan, caseId = plan.
   const hasRaceSpecific = !['marathon', 'half_marathon'].includes(input.raceDistance) || !plan.warnings.some((warning) => ['marathon_specific_missing', 'half_specific_missing', 'no_quality_progression'].includes(warning.id));
   const fuelPracticeOk = input.raceDistance !== 'marathon' || achievedPeakLongRunKm < 24 || !plan.warnings.some((warning) => warning.id === 'marathon_fuel_practice_missing');
   const intermediate = intermediateRaceValidation(plan);
+  const qualityProgression = validateQualityProgression(plan);
 
   if (!longRunTargetMet) issues.push(`peak long run ${achievedPeakLongRunKm}km outside target ${longTarget.min}-${longTarget.max}km`);
   if (!weeklyVolumeTargetMet) issues.push(`peak weekly ${achievedPeakWeeklyKm}km outside target ${weeklyTarget.min}-${weeklyTarget.max}km`);
@@ -46,6 +47,7 @@ export function evaluateEngineHealth(plan: GeneratedTrainingPlan, caseId = plan.
   if (!taperPresent) issues.push('missing taper');
   if (!raceWeekPresent) issues.push('missing race week');
   if (!foundationCountValid) issues.push('too many foundation runs for selected run frequency');
+  if (!qualityProgression.qualityProgressionValid) issues.push(...qualityProgression.issues);
   issues.push(...intermediate.issues);
   healthWarnings.push(...intermediate.warnings);
 
@@ -63,12 +65,31 @@ export function evaluateEngineHealth(plan: GeneratedTrainingPlan, caseId = plan.
   if ((input.milestoneRaces?.length ?? 0) > 0 && !intermediate.intermediateRaceSupportValid) score -= 10;
   score -= Math.min(10, plan.warnings.filter((warning) => warning.severity === 'caution').length * 1);
   const engineScore = Math.max(0, Math.round(score));
-  return { caseId, raceDistance: input.raceDistance, raceGoal: input.raceGoal, weeksToRace: plan.weeksFromNowToRaceWeek, currentWeeklyKm: input.currentWeeklyKm, longestRunKm: input.longestRunKm, runsPerWeek: input.runsPerWeek, achievedPeakLongRunKm, peakLongRunKm: achievedPeakLongRunKm, peakLongRunWeek, targetPeakLongRunMin: longTarget.min, targetPeakLongRunMax: longTarget.max, longRunTargetMet, achievedPeakWeeklyKm, peakWeeklyKm: achievedPeakWeeklyKm, targetPeakWeeklyKmMin: weeklyTarget.min, targetPeakWeeklyKmMax: weeklyTarget.max, weeklyVolumeTargetMet, ...progression, runwayClassification, recoveryWeeksPresent, taperPresent, raceWeekPresent, foundationCountValid, intermediateRaceSupportPresent: intermediate.intermediateRaceSupportPresent, intermediateRacePrimary: intermediate.intermediateRacePrimary, intermediateRaceConflictFree: intermediate.intermediateRaceConflictFree, intermediateRaceLongRunValid: intermediate.intermediateRaceLongRunValid, intermediateRaceRecoveryValid: intermediate.intermediateRaceRecoveryValid, destinationProgressionResumed: intermediate.destinationProgressionResumed, intermediateRaceSupportValid: intermediate.intermediateRaceSupportValid, suspiciousWarningCount, engineScore, engineGrade: grade(engineScore), issues: issues.join(' | '), warnings: healthWarnings.join(' | ') };
+  return { caseId, raceDistance: input.raceDistance, raceGoal: input.raceGoal, weeksToRace: plan.weeksFromNowToRaceWeek, currentWeeklyKm: input.currentWeeklyKm, longestRunKm: input.longestRunKm, runsPerWeek: input.runsPerWeek, achievedPeakLongRunKm, peakLongRunKm: achievedPeakLongRunKm, peakLongRunWeek, targetPeakLongRunMin: longTarget.min, targetPeakLongRunMax: longTarget.max, longRunTargetMet, achievedPeakWeeklyKm, peakWeeklyKm: achievedPeakWeeklyKm, targetPeakWeeklyKmMin: weeklyTarget.min, targetPeakWeeklyKmMax: weeklyTarget.max, weeklyVolumeTargetMet, ...progression, runwayClassification, recoveryWeeksPresent, taperPresent, raceWeekPresent, foundationCountValid, intermediateRaceSupportPresent: intermediate.intermediateRaceSupportPresent, intermediateRacePrimary: intermediate.intermediateRacePrimary, intermediateRaceConflictFree: intermediate.intermediateRaceConflictFree, intermediateRaceLongRunValid: intermediate.intermediateRaceLongRunValid, intermediateRaceRecoveryValid: intermediate.intermediateRaceRecoveryValid, destinationProgressionResumed: intermediate.destinationProgressionResumed, intermediateRaceSupportValid: intermediate.intermediateRaceSupportValid, qualityProgressionValid: qualityProgression.qualityProgressionValid, duplicateQualityWeeks: qualityProgression.duplicateWeeks.join(','), marathonSpecificSessionCount: qualityProgression.marathonSpecificSessionCount, suspiciousWarningCount, engineScore, engineGrade: grade(engineScore), issues: issues.join(' | '), warnings: healthWarnings.join(' | ') };
 }
 
 export function isWithinRange(value: unknown, min: unknown, max: unknown) { return Number.isFinite(value) && Number.isFinite(min) && Number.isFinite(max) && (value as number) >= (min as number) && (value as number) <= (max as number); }
 export function grade(score: number): EngineGrade { if (score >= 90) return 'A'; if (score >= 80) return 'B'; if (score >= 70) return 'C'; if (score >= 60) return 'D'; return 'F'; }
 export function classifyRunway(raceDistance: GeneratedTrainingPlan['inputs']['raceDistance'], weeks: number): RunwayClassification { const template = planTemplates.find((item) => item.race === raceDistance); if (!template || weeks < template.minimumWeeks - 2) return 'SHORT'; if (weeks < template.preferredWeeks) return 'COMPRESSED'; if (weeks <= template.maximumWeeks) return 'NORMAL'; return 'LONG'; }
+
+export function validateQualityProgression(plan: GeneratedTrainingPlan): { qualityProgressionValid: boolean; duplicateWeeks: number[]; marathonSpecificSessionCount: number; issues: string[] } {
+  const duplicateWeeks: number[] = [];
+  for (let index = 1; index < plan.weeks.length; index += 1) {
+    const previous = plan.weeks[index - 1], current = plan.weeks[index];
+    if (!normalProgressionWeek(previous) || !normalProgressionWeek(current)) continue;
+    const previousQuality = primaryQuality(previous), currentQuality = primaryQuality(current);
+    if (previousQuality && currentQuality && qualitySignature(previousQuality) === qualitySignature(currentQuality)) duplicateWeeks.push(current.weekNumber);
+  }
+  const marathonSpecificSessionCount = plan.weeks.filter((week) => week.phase === 'specific' || week.phase === 'peak').flatMap((week) => week.foundationWorkouts).filter((workout) => /(^|[^-])marathon effort|marathon-effort/i.test(`${workout.title} ${workout.mainSet}`)).length;
+  const issues = duplicateWeeks.length ? [`Duplicate primary quality sessions in normal progression weeks: ${duplicateWeeks.join(',')}.`] : [];
+  if (plan.inputs.raceDistance === 'marathon' && plan.weeks.length >= 10 && marathonSpecificSessionCount === 0) issues.push('Marathon plan lacks marathon-specific quality work.');
+  return { qualityProgressionValid: issues.length === 0, duplicateWeeks, marathonSpecificSessionCount, issues };
+}
+
+function normalProgressionWeek(week: GeneratedTrainingWeek) { return week.weekType === 'normal' && week.phase !== 'taper' && week.phase !== 'race_week' && !week.foundationWorkouts.some((workout) => workout.type === 'race'); }
+function primaryQuality(week: GeneratedTrainingWeek) { return week.foundationWorkouts.find((workout) => workout.type === 'quality_session'); }
+function qualitySignature(workout: GeneratedWorkout) { return `${categoryForQuality(workout)}|${workout.mainSet}|${workout.intensity}`.toLowerCase().replace(/\s+/g, ' ').trim(); }
+function categoryForQuality(workout: GeneratedWorkout) { return /marathon/.test(`${workout.title} ${workout.mainSet}`) ? 'marathon' : /half-marathon/.test(`${workout.title} ${workout.mainSet}`) ? 'half' : /threshold|cruise/.test(`${workout.title} ${workout.mainSet}`) ? 'threshold' : /hill/.test(`${workout.title} ${workout.mainSet}`) ? 'hills' : /vo2|race/.test(`${workout.title} ${workout.mainSet}`) ? 'race-pace' : /stride/.test(`${workout.title} ${workout.mainSet}`) ? 'strides' : workout.type; }
 
 function progressionMetrics(weeks: GeneratedTrainingWeek[]) {
   let maxOrdinaryWeekIncreasePercent = 0, maxBuildToBuildIncreasePercent = 0, maxRecoveryBouncePercent = 0;
