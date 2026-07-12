@@ -20,12 +20,14 @@ export function SlidePanel({ isOpen, title, subtitle, children, onClose }: { isO
   return <div style={{ position: 'fixed', inset: 0, zIndex: 20, pointerEvents: isOpen ? 'auto' : 'none', overflow: 'hidden' }} aria-hidden={!isOpen}>
     <button type="button" aria-label="Close panel" onClick={onClose} style={{ position: 'absolute', inset: 0, width: '100%', border: 0, background: isOpen ? 'rgba(47,42,36,0.18)' : 'rgba(47,42,36,0)', transition: `background ${theme.animation.page}` }} />
     <aside role="dialog" aria-modal="true" aria-label={title} style={{ position: 'absolute', top: 0, right: 0, width: '85vw', maxWidth: px(Math.round(theme.layout.maxWidth * 0.85)), height: '100%', background: colors.neutral.surfaceWarm, borderTopLeftRadius: radius.card, borderBottomLeftRadius: radius.card, boxShadow: shadows.shell, transform: isOpen ? 'translateX(0)' : 'translateX(100%)', transition: `transform ${theme.animation.page}`, display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', overflow: 'hidden' }}>
-      <header style={{ padding: `${px(spacing.lg)} ${px(spacing.lg)} ${px(spacing.md)}`, borderBottom: `1px solid ${colors.neutral.border}`, background: colors.neutral.surface }}>
-        <button type="button" onClick={onClose} style={{ ...buttonBase, minHeight: px(44), width: 'auto', padding: `${px(spacing.sm)} ${px(spacing.md)}`, marginBottom: px(spacing.md), background: colors.neutral.surface, color: colors.neutral.text, border: `1px solid ${colors.neutral.border}`, boxShadow: 'none' }}>Close</button>
-        <h2 style={{ ...typography.h2, margin: 0 }}>{title}</h2>
-        {subtitle ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: `${px(spacing.xs)} 0 0` }}>{subtitle}</p> : null}
+      <header style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: px(spacing.sm), alignItems: 'start', padding: `${px(spacing.md)} ${px(spacing.md)} ${px(spacing.sm)}`, borderBottom: `1px solid ${colors.neutral.border}`, background: colors.neutral.surface }}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ ...typography.h3, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
+          {subtitle ? <p style={{ ...typography.small, color: colors.neutral.muted, margin: `${px(spacing.xxs)} 0 0` }}>{subtitle}</p> : null}
+        </div>
+        <button type="button" aria-label="Close" onClick={onClose} style={{ ...buttonBase, minHeight: px(36), width: px(36), padding: 0, background: colors.neutral.surface, color: colors.neutral.text, border: `1px solid ${colors.neutral.border}`, boxShadow: 'none' }}>×</button>
       </header>
-      <div style={{ overflowY: 'auto', overflowX: 'hidden', padding: `${px(spacing.lg)} ${px(spacing.lg)} calc(env(safe-area-inset-bottom) + ${px(spacing.navBottom)})` }}>{children}</div>
+      <div style={{ overflowY: 'auto', overflowX: 'hidden', padding: `${px(spacing.md)} ${px(spacing.md)} calc(env(safe-area-inset-bottom) + ${px(spacing.navBottom)})` }}>{children}</div>
     </aside>
   </div>;
 }
